@@ -82,25 +82,58 @@ export function Simulator({ cfg, device }: { cfg: ProjectConfig; device: Device 
   const route = useStudio((s) => s.ui.route);
   const routeKey = `${route.page}|${JSON.stringify(route.params ?? {})}`;
   useEffect(() => { scrollRef.current?.scrollTo({ top: 0 }); }, [routeKey]);
+  const focus = useSimUi((s) => s.focus);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  /** Desplaza el lienzo hasta un elemento (considera la escala del lienzo desktop). */
+  const scrollToEl = (el: HTMLElement, center = false) => {
+    const sc = scrollRef.current;
+    if (!sc || !sc.contains(el)) return;
+    const box = sc.getBoundingClientRect();
+    const scale = box.height / sc.clientHeight || 1;
+    const r = el.getBoundingClientRect();
+    const offset = (r.top - box.top) / scale;
+    const h = r.height / scale;
+    const top = center && h < sc.clientHeight ? offset - (sc.clientHeight - h) / 2 : offset - 70;
+    sc.scrollTo({ top: Math.max(0, sc.scrollTop + top), behavior: 'smooth' });
+  };
+
   useEffect(() => {
     if (!highlight) return;
     const t = setTimeout(() => {
       const el = scrollRef.current?.querySelector<HTMLElement>(`[data-section-id="${highlight}"]`);
-      const sc = scrollRef.current;
-      if (!el || !sc) return;
-      const box = sc.getBoundingClientRect();
-      const scale = box.height / sc.clientHeight || 1; // el lienzo desktop puede estar escalado
-      const offset = (el.getBoundingClientRect().top - box.top) / scale;
-      sc.scrollTo({ top: sc.scrollTop + offset - 60, behavior: 'smooth' });
+      if (el) scrollToEl(el);
     }, 60);
     return () => clearTimeout(t);
   }, [highlight, routeKey]);
+
+  // Enfoque de una decisión: ir al componente y resaltarlo
+  useEffect(() => {
+    if (!focus) return;
+    let off: ReturnType<typeof setTimeout> | undefined;
+    const t = setTimeout(() => {
+      const els = [...(rootRef.current?.querySelectorAll<HTMLElement>(`[data-focus="${focus.target}"]`) ?? [])];
+      if (!els.length) return;
+      if (focus.target === 'header' || focus.target === 'announcement') scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+      else scrollToEl(els[0], true);
+      els.forEach((el) => {
+        el.classList.remove('sim-spotlight');
+        void el.offsetWidth;
+        el.classList.add('sim-spotlight');
+      });
+      off = setTimeout(() => els.forEach((el) => el.classList.remove('sim-spotlight')), 1900);
+    }, 140);
+    return () => {
+      clearTimeout(t);
+      clearTimeout(off);
+    };
+  }, [focus, routeKey, device]);
 
   const value = useMemo(() => ({ cfg, device, scrollRef, overlayEl, money: makeMoney(cfg), go: navigate }), [cfg, device, overlayEl, navigate]);
 
   return (
     <SimProvider value={value}>
-      <div className="sim-root @container relative h-full w-full overflow-hidden bg-white font-sim-body text-slate-900" style={simVars(cfg)} data-device={device} data-testid="simulator">
+      <div ref={rootRef} className="sim-root @container relative h-full w-full overflow-hidden bg-white font-sim-body text-slate-900" style={simVars(cfg)} data-device={device} data-testid="simulator" onPointerDownCapture={() => useSimUi.getState().forced && useSimUi.getState().setForced(null)}>
         <div ref={scrollRef} className="thin-scroll absolute inset-0 overflow-y-auto overflow-x-hidden">
           <div className="flex min-h-full flex-col">
             <SimHeader />

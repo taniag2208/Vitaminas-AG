@@ -25,6 +25,13 @@ Ejecución: `npm run build && npm run preview` + `npm run e2e` (Chromium, Playwr
 
 Además, la prueba falla si hay errores de página o de consola. La ejecución final terminó sin errores.
 
+## Funciones adicionales — 2/2 ✔
+
+| # | Verificación |
+|---|---|
+| 17 | Toppings: vaciar el Home, apilar banner → más vendidos → beneficios → newsletter en ese orden, el texto del siguiente paso se actualiza y quitar un topping lo retira del simulador |
+| 18 | Vista previa guiada: bordes abre el catálogo y resalta; el tipo de menú abre el megamenú o el desplegable; el panel de filtros se abre; filtros en móvil cambia a móvil y abre el drawer; envío gratis abre el carrito con la barra |
+
 ## Pruebas unitarias del motor — 19/19 ✔
 
 Integridad entre preguntas y configuración, anotaciones referenciadas, preguntas condicionales, mapa del sitio, filtros (AND entre atributos, OR dentro de un atributo), facetas, ordenamiento, atributos personalizados, clasificación de alcance, estados de decisión, requerimientos, riesgos y exportaciones.

@@ -42,12 +42,12 @@ export function Annotated({ id, children, className, label, reqId, as: Tag = 'di
   const selected = useStudio((s) => s.ui.selectedAnnotation);
   const setUi = useStudio((s) => s.setUi);
   const { cfg } = useSim();
-  if (!on) return <Tag className={className}>{children}</Tag>;
+  if (!on) return <Tag className={className} data-focus={id}>{children}</Tag>;
   const spec = getAnnotation(id, cfg);
   const value = `${id}${reqId ? `|${reqId}` : ''}`;
   const active = selected === value;
   return (
-    <Tag className={cn(className, !/\b(absolute|fixed|sticky)\b/.test(className ?? '') && 'relative', 'outline-2 -outline-offset-2 outline-dashed', active ? 'outline-amber-500' : 'outline-amber-400/70')} data-annotation={id}>
+    <Tag className={cn(className, !/\b(absolute|fixed|sticky)\b/.test(className ?? '') && 'relative', 'outline-2 -outline-offset-2 outline-dashed', active ? 'outline-amber-500' : 'outline-amber-400/70')} data-annotation={id} data-focus={id}>
       {children}
       <button
         type="button"

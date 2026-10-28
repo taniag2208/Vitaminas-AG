@@ -78,7 +78,6 @@ await check(2, 'Eliminar una página la retira de la navegación', async () => {
 await check(3, 'Seleccionar una sección del Home la incorpora inmediatamente', async () => {
   await phase('home');
   assert(await sim().locator('[data-section-type="testimonials"]').count() === 0, 'Ya había testimonios');
-  await page.getByTestId('add-section').click();
   await page.locator('[data-palette-type="testimonials"]').click();
   await sim().locator('[data-section-type="testimonials"]').waitFor({ timeout: 2000 });
   await shot('03-home-builder');
@@ -89,6 +88,7 @@ const simOrder = () => sim().locator('[data-section-type]').evaluateAll((els) =>
 await check(4, 'Reordenar secciones cambia su posición en el simulador', async () => {
   const before = await simOrder();
   // a) Flechas
+  await page.getByRole('radio', { name: /Ordenar y editar/ }).click();
   const items = page.getByTestId('home-section-item');
   const n = await items.count();
   await items.nth(n - 1).getByRole('button', { name: 'Subir sección' }).click();
@@ -251,7 +251,7 @@ await check(16, 'El cliente puede volver a cualquier fase sin perder sus respues
   await phase('product');
   assert((await q('product.infoDisplay').locator('[data-option="tabs"]').getAttribute('aria-checked')) === 'true', 'Fase 4 perdió respuesta');
   await phase('home');
-  assert((await page.getByTestId('home-section-item').count()) >= 8, 'Fase 2 perdió secciones');
+  assert((await page.getByTestId('toppings-stack').locator('li').count()) >= 8, 'Fase 2 perdió secciones');
   await phase('identity');
   assert((await q('header.elements').getByRole('button', { name: /Lista de deseos/ }).getAttribute('aria-pressed')) === 'true', 'Fase 1 perdió respuesta');
   await q('brand.storeName').getByTestId('approve').click();
@@ -291,6 +291,46 @@ await check(14, 'La exportación JSON refleja las decisiones actuales', async ()
     await d.saveAs(f);
     assert(fs.statSync(f).size > 200, `Exportación ${id} vacía`);
   }
+});
+
+console.log('\nFunciones adicionales\n');
+await page.getByTestId('workspace-studio').click();
+
+await check(17, 'Toppings: armar el Home por pasos desde cero', async () => {
+  await phase('home');
+  await page.getByTestId('toppings-clear').click();
+  await page.getByTestId('toppings-clear-confirm').click();
+  assert((await page.getByTestId('toppings-prompt').innerText()).includes('primero'), 'Prompt inicial');
+  for (const t of ['hero', 'bestSellers', 'benefits', 'newsletter']) await page.locator(`[data-palette-type="${t}"]`).click();
+  const order = await simOrder();
+  assert(JSON.stringify(order) === JSON.stringify(['hero', 'bestSellers', 'benefits', 'newsletter']), `Orden ${order}`);
+  assert((await page.getByTestId('toppings-prompt').innerText()).includes('Newsletter'), 'Prompt siguiente');
+  await page.getByTestId('toppings-stack').getByRole('button', { name: 'Quitar Beneficios' }).click();
+  assert(!(await simOrder()).includes('benefits'), 'Quitar topping');
+  await shot('17-toppings');
+});
+
+await check(18, 'Al tocar una pregunta el simulador muestra y resalta lo que cambia', async () => {
+  await phase('identity');
+  await q('brand.radius').locator('[data-option="round"]').click();
+  await sim().getByTestId('collection-page').waitFor();
+  await sim().locator('.sim-spotlight').first().waitFor({ timeout: 2000 });
+  await q('header.menuType').locator('[data-option="mega"]').click();
+  await sim().getByTestId('megamenu').waitFor({ timeout: 2000 });
+  await shot('18-menu-preview');
+  await q('header.menuType').locator('[data-option="dropdown"]').click();
+  await sim().getByTestId('menu-dropdown').waitFor({ timeout: 2000 });
+  await phase('catalog');
+  await q('catalog.filterLayout').locator('[data-option="dropdown"]').click();
+  await sim().getByTestId('filter-dropdown-panel').waitFor({ timeout: 2000 });
+  await q('catalog.mobileFilter').locator('[data-option="drawer"]').click();
+  await sim().getByTestId('filter-drawer').waitFor({ timeout: 2000 });
+  assert((await sim().getAttribute('data-device')) === 'mobile', 'No cambió a móvil');
+  await shot('18-mobile-filter-preview');
+  await page.getByRole('radio', { name: /Desktop/ }).click();
+  await phase('cart');
+  await q('cart.freeShippingBar').click();
+  await sim().getByTestId('cart-drawer').getByTestId('free-shipping-bar').waitFor({ timeout: 2000 });
 });
 
 await page.getByTestId('workspace-pmo').click();

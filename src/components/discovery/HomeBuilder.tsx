@@ -2,15 +2,15 @@ import { useState } from 'react';
 import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { ArrowDown, ArrowUp, ChevronDown, Copy, GripVertical, LayoutTemplate, Plus, Trash2 } from 'lucide-react';
-import { getSectionDef, SECTION_LIBRARY, type SectionDef } from '@/config/sections';
-import { makeSection } from '@/config/templates';
+import { ArrowDown, ArrowUp, ChevronDown, Copy, GripVertical, LayoutTemplate, ListOrdered, Plus, Sparkles, Trash2 } from 'lucide-react';
+import { getSectionDef, type SectionDef } from '@/config/sections';
 import { cn, uid } from '@/lib/utils';
 import { useStudio } from '@/store/useStudio';
 import { useSimUi } from '@/store/useSimUi';
 import type { ProjectConfig, SectionInstance, SectionProps } from '@/types/project';
 import { EmptyState, inputCls, ScopeBadge, Segmented } from '../ui';
 import { ImagePicker } from './Controls';
+import { HomeToppings } from './HomeToppings';
 
 const QID = 'home.sections';
 const CTA_TARGETS = [['catalog', 'Catálogo'], ['about', 'Nosotros'], ['contact', 'Contacto'], ['blog', 'Blog'], ['kits', 'Kits'], ['brands', 'Marcas']] as const;
@@ -106,7 +106,7 @@ export function HomeBuilder({ cfg }: { cfg: ProjectConfig }) {
   const setHighlight = useSimUi((s) => s.setHighlight);
   const navigate = useStudio((s) => s.navigate);
   const [open, setOpen] = useState<string | null>(null);
-  const [palette, setPalette] = useState(false);
+  const [tab, setTab] = useState<'toppings' | 'edit'>('toppings');
   const sections = cfg.home.sections;
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
 
@@ -114,47 +114,34 @@ export function HomeBuilder({ cfg }: { cfg: ProjectConfig }) {
     if (!e.over || e.active.id === e.over.id) return;
     setSections((list) => arrayMove(list, list.findIndex((x) => x.id === e.active.id), list.findIndex((x) => x.id === e.over!.id)));
   };
-  const add = (def: SectionDef) => {
-    const s = makeSection(def.type);
-    setSections((list) => (def.type === 'announcement' ? [s, ...list] : [...list, s]));
-    setOpen(s.id);
-    setPalette(false);
-    navigate('home');
-    setHighlight(s.id);
-    setTimeout(() => setHighlight(null), 1200);
-  };
 
   return (
     <div className="flex flex-col gap-3">
-      {sections.length === 0 ? (
-        <EmptyState icon={<LayoutTemplate size={20} />} title="El Home está vacío" text="Agrega la primera sección. Aparecerá de inmediato en el simulador." />
+      <Segmented
+        label="Modo del constructor"
+        value={tab}
+        onChange={setTab}
+        options={[
+          { value: 'toppings', label: <><Sparkles size={14} /> Toppings</> },
+          { value: 'edit', label: <><ListOrdered size={14} /> Ordenar y editar ({sections.length})</> },
+        ]}
+      />
+      {tab === 'toppings' ? (
+        <HomeToppings cfg={cfg} onAdded={(id) => setOpen(id)} />
+      ) : sections.length === 0 ? (
+        <EmptyState icon={<LayoutTemplate size={20} />} title="El Home está vacío" text="Agrega secciones desde la pestaña Toppings." action={<button type="button" onClick={() => setTab('toppings')} className="text-sm font-semibold text-studio-700 underline">Ir a Toppings</button>} />
       ) : (
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-          <SortableContext items={sections.map((s) => s.id)} strategy={verticalListSortingStrategy}>
-            <ol className="flex flex-col gap-2" aria-label="Secciones del Home" data-testid="home-section-list">
-              {sections.map((s, i) => <SortableItem key={s.id} s={s} index={i} total={sections.length} open={open === s.id} onToggle={() => { setOpen(open === s.id ? null : s.id); setHighlight(s.id); setTimeout(() => setHighlight(null), 1200); navigate('home'); }} />)}
-            </ol>
-          </SortableContext>
-        </DndContext>
+        <>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+            <SortableContext items={sections.map((s) => s.id)} strategy={verticalListSortingStrategy}>
+              <ol className="flex flex-col gap-2" aria-label="Secciones del Home" data-testid="home-section-list">
+                {sections.map((s, i) => <SortableItem key={s.id} s={s} index={i} total={sections.length} open={open === s.id} onToggle={() => { setOpen(open === s.id ? null : s.id); setHighlight(s.id); setTimeout(() => setHighlight(null), 1200); navigate('home'); }} />)}
+              </ol>
+            </SortableContext>
+          </DndContext>
+          <p className="text-[11px] text-slate-500">Arrastra con el ícono <GripVertical size={11} className="inline" /> o usa las flechas. Con teclado: foco en el ícono, Espacio y flechas. Toca una sección para editar títulos, textos, columnas e imágenes.</p>
+        </>
       )}
-      <button type="button" onClick={() => setPalette(!palette)} aria-expanded={palette} className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-studio-200 text-sm font-semibold text-studio-700 hover:border-studio-400 hover:bg-studio-50" data-testid="add-section">
-        <Plus size={16} /> Agregar sección
-      </button>
-      {palette && (
-        <div className="animate-fade-in grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2" data-testid="section-palette">
-          {SECTION_LIBRARY.map((d) => {
-            const exists = d.single && sections.some((s) => s.type === d.type);
-            return (
-              <button key={d.type} type="button" disabled={exists} onClick={() => add(d)} className="flex flex-col gap-1 rounded-lg border border-slate-200 bg-white p-2.5 text-left transition hover:border-studio-400 hover:shadow-sm disabled:opacity-40" data-palette-type={d.type}>
-                <span className="text-xs font-bold">{d.label}</span>
-                <span className="text-[11px] leading-tight text-slate-500">{d.description}</span>
-                {d.scope !== 'proposal' && <span><ScopeBadge scope={d.scope} short /></span>}
-              </button>
-            );
-          })}
-        </div>
-      )}
-      <p className="text-[11px] text-slate-500">Arrastra con el ícono <GripVertical size={11} className="inline" /> o usa las flechas. Con teclado: foco en el ícono, Espacio y flechas.</p>
     </div>
   );
 }

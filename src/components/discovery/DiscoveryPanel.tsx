@@ -4,6 +4,7 @@ import { PHASES, questionsForPhase, type PhaseId, type Question } from '@/config
 import { decisionMeta, isResolved, scopeOf, SCOPE_WARNING } from '@/engine/answers';
 import { buildSitemap } from '@/engine/pmo';
 import { cn } from '@/lib/utils';
+import { previewQuestion } from '@/lib/preview';
 import { useStudio } from '@/store/useStudio';
 import type { ProjectConfig } from '@/types/project';
 import { Button, inputCls, ScopeBadge, StatusBadge } from '../ui';
@@ -40,8 +41,7 @@ function Control({ q, cfg }: { q: Question; cfg: ProjectConfig }) {
 }
 
 function QuestionCard({ q, cfg }: { q: Question; cfg: ProjectConfig }) {
-  const { setDecision, navigate } = useStudio();
-  const route = useStudio((s) => s.ui.route.page);
+  const { setDecision } = useStudio();
   const meta = decisionMeta(q, cfg);
   const scope = scopeOf(q, cfg);
   const [notesOpen, setNotesOpen] = useState(!!meta.notes);
@@ -49,7 +49,8 @@ function QuestionCard({ q, cfg }: { q: Question; cfg: ProjectConfig }) {
   return (
     <article
       className={cn('rounded-2xl border bg-white p-4 transition', meta.status === 'approved' ? 'border-emerald-200' : 'border-slate-200', 'focus-within:border-studio-300 focus-within:shadow-[0_0_0_4px_var(--color-studio-50)]')}
-      onFocusCapture={() => q.preview && route !== q.preview && navigate(q.preview)}
+      onFocusCapture={() => previewQuestion(q.id)}
+      onClickCapture={() => previewQuestion(q.id)}
       data-question={q.id}
     >
       <header className="mb-3 flex items-start gap-2">

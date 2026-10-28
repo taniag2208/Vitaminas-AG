@@ -16,6 +16,8 @@ Abre http://localhost:5173, crea el proyecto con la plantilla *Bienestar y suple
 | Espacio | Función |
 |---|---|
 | **Panel Discovery** (izquierda) | 7 fases y unas 80 preguntas: selección única/múltiple, alternativas visuales, texto, colores, tipografías, carga de imágenes y referencias, constructor del Home con drag & drop, preguntas condicionales y confirmación/aprobación por decisión con responsable y notas. |
+| **Vista previa guiada** | Al tocar una pregunta u opción, el simulador abre la página correspondiente, se desplaza al componente y lo resalta. Abre el menú, el carrito, los filtros o el pop-up cuando hace falta y cambia a móvil en las preguntas de móvil. |
+| **Toppings del Home** | Armador por pasos ("¿Qué va primero?", "¿Y después?") con miniaturas visuales agrupadas: banners, explorar, productos, confianza, contenido y cierre. Permite empezar de cero o restaurar la sugerencia de la plantilla. |
 | **Simulador** (derecha) | La tienda completa renderizada desde la configuración: Home, colecciones con filtros que sí filtran, ficha de producto, carrito lateral o de página, checkout demostrativo, confirmación, seguimiento de pedidos, cuenta con suscripciones, kits, marcas, blog, FAQ, políticas y páginas personalizadas. Vista desktop y móvil, pantalla completa. |
 | **Ver implementación Shopify** | Resalta cada componente y abre su especificación: funcionalidad, implementación sugerida, clasificación técnica, dependencias, riesgos y criterios de aceptación. Si no hay tema definido, la compatibilidad de tema aparece como *pendiente*. |
 | **Panel PMO** | Resumen, registro de decisiones editable, requerimientos funcionales (RF-*), clasificación de alcance, riesgos, dependencias, criterios de aceptación, mapa del sitio y exportaciones. |
@@ -42,6 +44,6 @@ JSON de configuración (reimportable) · resumen funcional (MD) · mapa del siti
 | `npm run build` | Typecheck + build de producción en `dist/` |
 | `npm run preview` | Sirve `dist/` en http://localhost:4173 |
 | `npm test` | Pruebas unitarias del motor (Vitest) |
-| `npm run e2e` | QA end-to-end de los 16 criterios de aceptación (requiere `npm run preview` activo y Playwright con Chromium) |
+| `npm run e2e` | QA end-to-end de los 16 criterios de aceptación + toppings y vista previa guiada (requiere `npm run preview` activo y Playwright con Chromium) |
 
 Arquitectura y decisiones técnicas: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Análisis de la referencia Technofood: [docs/REFERENCE-ANALYSIS.md](docs/REFERENCE-ANALYSIS.md). Resultado de QA: [docs/QA.md](docs/QA.md).

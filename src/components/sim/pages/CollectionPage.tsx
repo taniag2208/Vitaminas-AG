@@ -4,6 +4,7 @@ import { applyFilters, effectiveFilters, facets, filterLabel, SORT_LABEL, sortPr
 import { DEMO_PRODUCTS } from '@/data/demoCatalog';
 import { cn } from '@/lib/utils';
 import { useStudio } from '@/store/useStudio';
+import { useSimUi } from '@/store/useSimUi';
 import type { SortOption } from '@/types/project';
 import { BannerArt } from '../Art';
 import { Container, DemoTag, ProductCard, SimButton } from '../Common';
@@ -52,6 +53,18 @@ export function CollectionPage() {
   const isMobile = device === 'mobile';
   const filterIds = effectiveFilters(cfg.catalog);
   const routeKey = JSON.stringify(route ?? {});
+  const forced = useSimUi((s) => s.forced);
+  const layoutNow = cfg.catalog.filterLayout;
+  const mobileFilterNow = cfg.catalog.mobileFilter;
+
+  // Mostrar los filtros abiertos cuando se está decidiendo su presentación
+  useEffect(() => {
+    if (forced !== 'openFilters') return;
+    if (isMobile) {
+      if (mobileFilterNow === 'drawer') setDrawer(true);
+      else { setDrawer(false); setMobileOpen('all'); }
+    } else if (layoutNow === 'dropdown') setOpenPanel('panel');
+  }, [forced, isMobile, layoutNow, mobileFilterNow]);
 
   useEffect(() => {
     setActive(initialFilters(route));
@@ -230,7 +243,7 @@ export function CollectionPage() {
         </div>
       </Container>
 
-      {drawer && (
+      {drawer && isMobile && mobileFilterNow === 'drawer' && (
         <SimPortal>
           <div className="absolute inset-0 z-40 flex" role="dialog" aria-modal="true" aria-label="Filtros">
             <div className="absolute inset-0 bg-black/40" onClick={() => setDrawer(false)} />

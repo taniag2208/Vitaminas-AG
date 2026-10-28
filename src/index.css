@@ -86,3 +86,16 @@ body {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* Resaltado del componente afectado por la decisión activa del Discovery */
+@keyframes sim-spotlight {
+  0% { outline-color: rgb(109 85 255 / 0); box-shadow: 0 0 0 0 rgb(109 85 255 / 0); }
+  15% { outline-color: rgb(109 85 255 / 1); box-shadow: 0 0 0 6px rgb(109 85 255 / 0.25); }
+  75% { outline-color: rgb(109 85 255 / 0.9); box-shadow: 0 0 0 10px rgb(109 85 255 / 0); }
+  100% { outline-color: rgb(109 85 255 / 0); box-shadow: 0 0 0 0 rgb(109 85 255 / 0); }
+}
+.sim-spotlight {
+  outline: 3px solid rgb(109 85 255 / 0);
+  outline-offset: -3px;
+  animation: sim-spotlight 1.8s ease-out both;
+}

@@ -31,8 +31,8 @@ export function SimHeader() {
   const route = useStudio((s) => s.ui.route);
   const session = useSession();
   const setCartOpen = useStudio((s) => s.setCartOpen);
-  const { setMobileMenu, mobileMenu, showToast } = useSimUi();
-  const [open, setOpen] = useState<string | null>(null);
+  const { setMobileMenu, mobileMenu, showToast, forced } = useSimUi();
+  const [hoverOpen, setOpen] = useState<string | null>(null);
   const [search, setSearch] = useState(false);
   const [q, setQ] = useState('');
   const h = cfg.header;
@@ -40,6 +40,8 @@ export function SimHeader() {
   const count = computeCart(cfg, session).count;
   const menuPages = cfg.pages.filter((p) => p.inMenu);
   const isMobile = device === 'mobile';
+  const catalogPage = menuPages.find((p) => p.type === 'catalog');
+  const open = hoverOpen ?? (forced === 'openMenu' && !isMobile && catalogPage ? catalogPage.id : null);
   useEffect(() => {
     setOpen(null);
   }, [route]);
@@ -126,7 +128,7 @@ export function SimHeader() {
           )}
         </div>
       </Annotated>
-      {mobileMenu && <MobileMenu />}
+      {(mobileMenu || (forced === 'openMenu' && isMobile)) && <MobileMenu />}
     </>
   );
 }
