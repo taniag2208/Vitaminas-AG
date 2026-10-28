@@ -1,0 +1,88 @@
+@import 'tailwindcss';
+
+/* ── Tokens de la aplicación (identidad Tita Media, configurable vía --studio-*) ── */
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Manrope', 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --color-ink-950: #0b0d17;
+  --color-ink-900: #11142a;
+  --color-ink-800: #1b1f3b;
+  --color-ink-700: #2a2f55;
+  --color-studio-50: #f3f1ff;
+  --color-studio-100: #e8e4ff;
+  --color-studio-200: #d2c9ff;
+  --color-studio-400: #8f7bff;
+  --color-studio-500: #6d55ff;
+  --color-studio-600: #5b3df5;
+  --color-studio-700: #4a2ed6;
+}
+
+/* ── Tokens del simulador: se alimentan de la configuración del proyecto ── */
+@theme inline {
+  --color-brand: var(--sim-primary);
+  --color-brand-soft: var(--sim-secondary);
+  --color-accent: var(--sim-accent);
+  --color-on-brand: var(--sim-on-primary);
+  --color-on-accent: var(--sim-on-accent);
+  --font-sim-heading: var(--sim-heading-font);
+  --font-sim-body: var(--sim-body-font);
+  --radius-sim: var(--sim-radius);
+  --radius-sim-lg: var(--sim-radius-lg);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-slate-50 font-sans text-slate-900 antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-studio-500);
+  outline-offset: 2px;
+}
+
+.sim-root :focus-visible {
+  outline-color: var(--sim-primary);
+}
+
+/* Scrollbars discretos */
+.thin-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes slide-in-right {
+  from { transform: translateX(100%); }
+  to { transform: none; }
+}
+@keyframes slide-in-left {
+  from { transform: translateX(-100%); }
+  to { transform: none; }
+}
+@keyframes flash {
+  0% { box-shadow: 0 0 0 0 rgb(109 85 255 / 0.55); }
+  100% { box-shadow: 0 0 0 10px rgb(109 85 255 / 0); }
+}
+.animate-fade-in { animation: fade-in 0.25s ease both; }
+.animate-slide-right { animation: slide-in-right 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.animate-slide-left { animation: slide-in-left 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.animate-flash { animation: flash 0.9s ease-out 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
