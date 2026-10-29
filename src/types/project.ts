@@ -1,9 +1,10 @@
 /**
- * Modelo de datos de Tita Discovery Studio.
+ * Configuración del simulador.
  *
- * `ProjectConfig` es la ÚNICA fuente de verdad: el panel Discovery escribe en él,
- * el simulador lo renderiza y el panel PMO deriva de él decisiones, requerimientos,
- * riesgos y exportaciones. Ningún componente mantiene una copia paralela de estas decisiones.
+ * En la v2, `ProjectConfig` (alias `SimConfig`) es la CONFIGURACIÓN DERIVADA: se calcula
+ * con `deriveConfig()` a partir de las respuestas del Discovery y del estado de los toppings
+ * (ver `types/discovery.ts`). Nunca se edita ni se guarda directamente.
+ * En la v1 era el objeto guardado; `engine/migrate.ts` convierte esos proyectos.
  */
 
 export const SCHEMA_VERSION = 1;
@@ -117,7 +118,8 @@ export type SectionType =
   | 'promoBanner'
   | 'ctaFinal'
   | 'goals'
-  | 'bundles';
+  | 'bundles'
+  | 'countdown';
 
 export interface SlideContent {
   id: string;
@@ -193,6 +195,8 @@ export interface CatalogConfig {
   sorts: SortOption[];
   pagination: 'pages' | 'loadMore' | 'infinite';
   bannerOnCollection: boolean;
+  /** v2: tratamiento de agotados en el listado */
+  outOfStock?: 'last' | 'show' | 'hide';
 }
 
 export type BeforeBuyBlock =
@@ -308,10 +312,29 @@ export interface ProjectConfig {
   bundles: BundleConfig;
   leads: LeadsConfig;
   sap: SapConfig;
-  /** Metadatos de cada decisión, indexados por id de pregunta */
+  /** Metadatos de cada decisión, indexados por id de pregunta (solo v1) */
   decisions: Record<string, DecisionMeta>;
-  /** Preguntas que el cliente marcó explícitamente como respondidas */
+  /** Preguntas que el cliente marcó explícitamente como respondidas (solo v1) */
   answered: Record<string, boolean>;
+  /** v2: toppings activos con su variante y parámetros */
+  features?: Record<string, FeatureState>;
+  /** v2: contexto de negocio que condiciona textos y recomendaciones */
+  context?: BusinessContext;
+}
+
+export type SimConfig = ProjectConfig;
+
+export interface FeatureState {
+  variant?: string;
+  params: Record<string, unknown>;
+}
+
+export interface BusinessContext {
+  vertical: string;
+  b2c: boolean;
+  b2b: boolean;
+  tone: 'formal' | 'close' | 'expert' | 'inspiring';
+  personality: string;
 }
 
 /** Producto del catálogo de demostración. */

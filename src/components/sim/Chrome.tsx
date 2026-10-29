@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ChevronDown, Heart, Menu, Phone, Search, ShoppingBag, User, X } from 'lucide-react';
-import { DEMO_BRANDS, DEMO_GOALS, getProduct } from '@/data/demoCatalog';
+import { ChevronDown, Heart, Menu, MessageCircle, Phone, Search, ShoppingBag, User, X } from 'lucide-react';
+import { DEMO_BRANDS, DEMO_GOALS, DEMO_PRODUCTS, getProduct } from '@/data/demoCatalog';
 import { cn } from '@/lib/utils';
 import { useSession, useStudio } from '@/store/useStudio';
 import { useSimUi } from '@/store/useSimUi';
@@ -31,7 +31,8 @@ export function SimHeader() {
   const route = useStudio((s) => s.ui.route);
   const session = useSession();
   const setCartOpen = useStudio((s) => s.setCartOpen);
-  const { setMobileMenu, mobileMenu, showToast, forced } = useSimUi();
+  const setB2bMode = useStudio((s) => s.setB2bMode);
+  const { setMobileMenu, mobileMenu, forced } = useSimUi();
   const [hoverOpen, setOpen] = useState<string | null>(null);
   const [search, setSearch] = useState(false);
   const [q, setQ] = useState('');
@@ -51,7 +52,12 @@ export function SimHeader() {
     <div className="flex items-center gap-1">
       {el.includes('search') && <button type="button" aria-label="Buscar" onClick={() => setSearch(!search)} className="grid h-10 w-10 place-items-center rounded-full hover:bg-slate-100"><Search size={20} /></button>}
       {el.includes('account') && !isMobile && <button type="button" aria-label="Mi cuenta" onClick={() => go('account')} className="grid h-10 w-10 place-items-center rounded-full hover:bg-slate-100"><User size={20} /></button>}
-      {el.includes('wishlist') && !isMobile && <button type="button" aria-label="Lista de deseos" onClick={() => showToast('Lista de deseos: requiere app (no se simula su funcionamiento).')} className="grid h-10 w-10 place-items-center rounded-full hover:bg-slate-100"><Heart size={20} /></button>}
+      {el.includes('wishlist') && !isMobile && (
+        <button type="button" aria-label={`Lista de deseos, ${session.wishlist?.length ?? 0} productos`} onClick={() => go('account', { tab: 'wishlist' })} className="relative grid h-10 w-10 place-items-center rounded-full hover:bg-slate-100" data-testid="header-wishlist">
+          <Heart size={20} />
+          {(session.wishlist?.length ?? 0) > 0 && <span className="absolute -right-0.5 -top-0.5 grid h-5 min-w-5 place-items-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">{session.wishlist!.length}</span>}
+        </button>
+      )}
       {el.includes('cart') && (
         <button type="button" aria-label={`Carrito, ${count} productos`} onClick={openCart} className="relative grid h-10 w-10 place-items-center rounded-full hover:bg-slate-100" data-testid="header-cart">
           <ShoppingBag size={20} />
@@ -61,6 +67,7 @@ export function SimHeader() {
     </div>
   );
 
+  const megaCols = (cfg.features?.['mega-menu']?.params.columns as string[] | undefined) ?? ['categories', 'goals', 'brands', 'promo'];
   const catalogMenu = (label: string, pageId: string) => {
     if (h.menuType === 'simple') return <NavLink key={pageId} label={label} active={route.page === pageId} onClick={() => go(pageId)} />;
     return (
@@ -78,14 +85,14 @@ export function SimHeader() {
           <Annotated id="megamenu" className="animate-fade-in absolute inset-x-0 top-full z-30 border-t border-slate-100 bg-white shadow-2xl">
             <Container className="grid grid-cols-4 gap-8 py-8" >
               <div data-testid="megamenu" className="contents">
-                <MegaCol title="Categorías" items={cfg.catalog.categories} onPick={(v) => go('catalog', { category: v })} />
-                {cfg.catalog.attributes.includes('goal') && <MegaCol title="Objetivos" items={DEMO_GOALS.slice(0, 7)} onPick={(v) => go('catalog', { goal: v })} />}
-                {cfg.brand.identity === 'multi' && <MegaCol title="Marcas" items={DEMO_BRANDS} onPick={(v) => go('catalog', { brand: v })} />}
-                <button type="button" onClick={() => go(cfg.bundles.enabled ? 'kits' : 'catalog')} className="group col-start-4 overflow-hidden rounded-sim-lg bg-brand-soft text-left">
+                {megaCols.includes('categories') && <MegaCol title="Categorías" items={cfg.catalog.categories} onPick={(v) => go('catalog', { category: v })} />}
+                {megaCols.includes('goals') && <MegaCol title="Objetivos" items={DEMO_GOALS.slice(0, 7)} onPick={(v) => go('catalog', { goal: v })} />}
+                {megaCols.includes('brands') && cfg.brand.identity === 'multi' && <MegaCol title="Marcas" items={DEMO_BRANDS} onPick={(v) => go('catalog', { brand: v })} />}
+                {megaCols.includes('promo') && <button type="button" onClick={() => go(cfg.bundles.enabled ? 'kits' : 'catalog')} className="group col-start-4 overflow-hidden rounded-sim-lg bg-brand-soft text-left">
                   <div className="aspect-[16/9] overflow-hidden"><BannerArt seed={50} primary={cfg.brand.primary} accent={cfg.brand.accent} className="h-full w-full transition group-hover:scale-105" label={false} /></div>
                   <p className="px-4 pt-3 font-sim-heading text-sm font-bold">{cfg.bundles.enabled ? 'Kits para tu rutina' : 'Novedades de la temporada'}</p>
                   <p className="px-4 pb-4 text-xs text-slate-600">Bloque promocional del megamenú</p>
-                </button>
+                </button>}
               </div>
             </Container>
           </Annotated>
@@ -96,8 +103,15 @@ export function SimHeader() {
 
   return (
     <>
+      {cfg.features?.['b2b-price-lists'] && (
+        <div className="flex items-center justify-center gap-2 bg-slate-900 py-1.5 text-[11px] text-white" data-testid="b2b-toggle">
+          Ver precios como:
+          {([false, true] as const).map((on) => <button key={String(on)} type="button" aria-pressed={!!session.b2bMode === on} onClick={() => setB2bMode(on)} className={cn('rounded-full px-2.5 py-0.5 font-semibold', !!session.b2bMode === on ? 'bg-white text-slate-900' : 'text-white/70 hover:text-white')}>{on ? 'Distribuidor' : 'Cliente final'}</button>)}
+          <span className="text-white/50">(demostración)</span>
+        </div>
+      )}
       {el.includes('utilityBar') && <div className="bg-slate-900 py-1.5 text-[11px] text-slate-300"><Container className="flex items-center justify-between"><span className="inline-flex items-center gap-1.5"><Phone size={12} /> Línea de atención (por definir)</span><span>{menuPages.length} páginas en menú</span></Container></div>}
-      {el.includes('promoBar') && <Annotated id="announcement"><div className="bg-brand px-4 py-2 text-center text-xs font-medium text-on-brand">{h.promoText}</div></Annotated>}
+      {el.includes('promoBar') && <Annotated id="announcement"><AnnouncementText text={h.promoText} rotate={cfg.features?.['announcement-bar']?.params.rotate === true} incentive={cfg.leads.incentive} /></Annotated>}
       <Annotated id="header" as="header" className={cn('z-20 border-b border-slate-200 bg-white/95 backdrop-blur', h.sticky && 'sticky top-0')}>
         <div className="relative">
           <Container className={cn('flex h-16 items-center gap-4', h.logoPosition === 'center' && !isMobile && 'grid grid-cols-[1fr_auto_1fr]')}>
@@ -123,6 +137,14 @@ export function SimHeader() {
                   <input autoFocus aria-label="Buscar productos" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Busca por producto, marca o ingrediente" className="h-11 flex-1 rounded-sim border border-slate-300 px-4 text-sm" />
                   <SimButton type="submit">Buscar</SimButton>
                 </form>
+                {cfg.features?.['predictive-search'] && q.trim().length >= 2 && (
+                  <ul className="mt-2 divide-y divide-slate-100 rounded-sim-lg border border-slate-200 bg-white" data-testid="search-suggestions">
+                    {DEMO_PRODUCTS.filter((x) => `${x.name} ${x.brand} ${x.ingredients.join(' ')}`.toLowerCase().includes(q.toLowerCase())).slice(0, 5).map((x) => (
+                      <li key={x.id}><button type="button" onClick={() => { setSearch(false); setQ(''); go('product', { id: x.id }); }} className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-slate-50"><span className="h-9 w-9 overflow-hidden rounded bg-slate-50"><ProductArt product={x} className="h-full w-full" /></span><span className="flex-1"><b className="block">{x.name}</b><span className="text-xs text-slate-500">{x.brand}</span></span></button></li>
+                    ))}
+                    {!DEMO_PRODUCTS.some((x) => `${x.name} ${x.brand} ${x.ingredients.join(' ')}`.toLowerCase().includes(q.toLowerCase())) && <li className="px-3 py-2 text-sm text-slate-500">Sin coincidencias</li>}
+                  </ul>
+                )}
               </Container>
             </div>
           )}
@@ -136,6 +158,44 @@ export function SimHeader() {
 const NavLink = ({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) => (
   <button type="button" onClick={onClick} aria-current={active ? 'page' : undefined} className={cn('inline-flex h-16 items-center border-b-2 px-3 text-sm font-semibold transition', active ? 'border-brand text-brand' : 'border-transparent hover:text-brand')}>{label}</button>
 );
+
+function AnnouncementText({ text, rotate, incentive }: { text: string; rotate: boolean; incentive: string }) {
+  const msgs = rotate ? [text, incentive || 'Paga seguro en el checkout de Shopify', 'Asesoría por chat · texto de ejemplo'] : [text];
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    if (msgs.length < 2) return;
+    const t = setInterval(() => setI((x) => (x + 1) % msgs.length), 3500);
+    return () => clearInterval(t);
+  }, [msgs.length]);
+  return <div className="bg-brand px-4 py-2 text-center text-xs font-medium text-on-brand" data-testid="announcement-bar">{msgs[i % msgs.length]}</div>;
+}
+
+/** Botón flotante de WhatsApp: abre un panel que explica lo que pasaría (no abre WhatsApp desde la simulación). */
+export function WhatsAppButton() {
+  const { cfg } = useSim();
+  const [open, setOpen] = useState(false);
+  const f = cfg.features?.['whatsapp-button'];
+  if (!f) return null;
+  const msg = String(f.params.message ?? 'Hola, quiero asesoría para mi compra');
+  return (
+    <SimPortal>
+      <div className="absolute bottom-10 right-3 z-30 flex flex-col items-end gap-2">
+        {open && (
+          <div className="animate-fade-in w-64 rounded-2xl bg-white p-3 text-xs shadow-2xl ring-1 ring-slate-200" role="dialog" aria-label="WhatsApp">
+            <p className="font-bold text-slate-800">WhatsApp de {cfg.brand.storeName}</p>
+            <p className="mt-1 rounded-lg bg-emerald-50 p-2 text-emerald-900">“{msg}”</p>
+            <p className="mt-2 text-[11px] text-slate-500">Simulación: en la tienda real abriría WhatsApp con este mensaje al número del cliente (por definir).</p>
+          </div>
+        )}
+        <Annotated id="whatsapp">
+          <button type="button" aria-label="WhatsApp" aria-expanded={open} onClick={() => setOpen(!open)} className="grid h-12 w-12 place-items-center rounded-full bg-[#25d366] text-white shadow-xl transition hover:scale-105" data-testid="whatsapp-button">
+            <MessageCircle size={24} />
+          </button>
+        </Annotated>
+      </div>
+    </SimPortal>
+  );
+}
 
 const MegaCol = ({ title, items, onPick }: { title: string; items: string[]; onPick: (v: string) => void }) => (
   <div>

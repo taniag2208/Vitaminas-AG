@@ -133,6 +133,12 @@ export const SECTION_LIBRARY: SectionDef[] = [
     editable: ['title', 'subtitle', 'cta', 'image', 'tone'], scope: 'proposal', annotation: 'promoBanner',
   },
   {
+    type: 'countdown', label: 'Cuenta regresiva', description: 'Contador para campañas con fecha límite.',
+    variants: [{ id: 'block', label: 'Bloque' }, { id: 'bar', label: 'Barra delgada' }],
+    defaults: { title: 'Black Friday', subtitle: 'Escenario demostrativo: la oferta termina cuando el contador llega a cero.', cta: 'Ver ofertas', ctaTarget: 'catalog', tone: 'dark' },
+    editable: ['title', 'subtitle', 'cta', 'tone'], scope: 'validation', annotation: 'countdown',
+  },
+  {
     type: 'ctaFinal', label: 'CTA final', description: 'Llamado a la acción al cierre de la página.',
     variants: [{ id: 'band', label: 'Banda' }, { id: 'card', label: 'Tarjeta' }],
     defaults: { title: '¿Necesitas ayuda para elegir?', subtitle: 'Escríbenos y te orientamos.', cta: 'Contactar', ctaTarget: 'contact', tone: 'brand' },

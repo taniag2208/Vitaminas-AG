@@ -1,8 +1,9 @@
 import { useEffect, useId, useRef, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { DecisionStatus, ScopeStatus, TechClass } from '@/types/project';
-import { SCOPE_LABEL, STATUS_LABEL } from '@/engine/answers';
+import type { ScopeStatus, TechClass } from '@/types/project';
+import type { AnswerStatus, ToppingStatus } from '@/types/discovery';
+import { ANSWER_STATUS_LABEL, SCOPE_LABEL, TOPPING_STATUS_LABEL } from '@/engine/labels';
 import { TECH_CLASS_LABEL } from '@/config/annotations';
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'dark';
@@ -93,18 +94,35 @@ export const TechBadge = ({ cls, pending }: { cls: TechClass; pending?: boolean 
   </span>
 );
 
-const STATUS_STYLE: Record<DecisionStatus, string> = {
+const STATUS_STYLE: Record<AnswerStatus, string> = {
   pending: 'bg-slate-100 text-slate-600',
-  proposed: 'bg-studio-50 text-studio-700',
-  approved: 'bg-emerald-50 text-emerald-700',
-  rejected: 'bg-rose-50 text-rose-700',
+  answered: 'bg-studio-50 text-studio-700',
+  to_validate: 'bg-amber-50 text-amber-800',
+  na: 'bg-slate-100 text-slate-400',
+};
+const DOT: Record<AnswerStatus, string> = { pending: 'bg-slate-300', answered: 'bg-studio-500', to_validate: 'bg-amber-500', na: 'bg-slate-300' };
+
+export const StatusDot = ({ status }: { status: AnswerStatus }) => (
+  <span className={cn('inline-block h-2 w-2 shrink-0 rounded-full', DOT[status], status === 'na' && 'ring-2 ring-slate-200')} aria-label={ANSWER_STATUS_LABEL[status]} />
+);
+
+export const StatusBadge = ({ status }: { status: AnswerStatus }) => (
+  <span className={cn('inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold', STATUS_STYLE[status])} data-status={status}>
+    <span className={cn('h-1.5 w-1.5 rounded-full', DOT[status])} />
+    {ANSWER_STATUS_LABEL[status]}
+  </span>
+);
+
+const TOPPING_STYLE: Record<ToppingStatus, string> = {
+  available: 'bg-slate-100 text-slate-500',
+  recommended: 'bg-sky-50 text-sky-700 ring-1 ring-inset ring-sky-200',
+  requested: 'bg-studio-50 text-studio-700 ring-1 ring-inset ring-studio-200',
+  approved: 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200',
+  discarded: 'bg-slate-100 text-slate-400 line-through',
 };
 
-export const StatusBadge = ({ status }: { status: DecisionStatus }) => (
-  <span className={cn('inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold', STATUS_STYLE[status])}>
-    <span className={cn('h-1.5 w-1.5 rounded-full', { pending: 'bg-slate-400', proposed: 'bg-studio-500', approved: 'bg-emerald-500', rejected: 'bg-rose-500' }[status])} />
-    {STATUS_LABEL[status]}
-  </span>
+export const ToppingStatusBadge = ({ status }: { status: ToppingStatus }) => (
+  <span className={cn('inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold', TOPPING_STYLE[status])} data-topping-status={status}>{TOPPING_STATUS_LABEL[status]}</span>
 );
 
 export function Modal({ open, onClose, title, children, wide }: { open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean }) {

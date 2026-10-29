@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ArrowRight, ChevronLeft, ChevronRight, CreditCard, MessageCircle, Minus, Plus, ShieldCheck, Truck } from 'lucide-react';
 import { DEMO_ARTICLES, DEMO_BRANDS, DEMO_FAQ, DEMO_GOALS, DEMO_PRODUCTS, DEMO_TESTIMONIALS, getProduct, minPrice } from '@/data/demoCatalog';
 import { getSectionDef } from '@/config/sections';
+import { getTopping } from '@/config/discovery/toppings';
 import { sortProducts } from '@/engine/catalog';
 import { cn } from '@/lib/utils';
 import type { SectionInstance } from '@/types/project';
@@ -67,10 +68,10 @@ function Slideshow({ s }: P) {
   const [i, setI] = useState(0);
   const [paused, setPaused] = useState(false);
   useEffect(() => {
-    if (paused || slides.length < 2) return;
+    if (paused || s.props.itemsCount === 0 || slides.length < 2) return;
     const t = setInterval(() => setI((x) => (x + 1) % slides.length), 5000);
     return () => clearInterval(t);
-  }, [paused, slides.length]);
+  }, [paused, slides.length, s.props.itemsCount]);
   if (!slides.length) return null;
   const cur = slides[Math.min(i, slides.length - 1)];
   const targets = ['catalog', 'product', 'kits'];
@@ -187,7 +188,7 @@ function Goals({ s }: P) {
 
 function ProductsSection({ s }: P) {
   const { go } = useSim();
-  const list = s.type === 'bestSellers' ? sortProducts(DEMO_PRODUCTS, 'bestSelling') : s.type === 'newArrivals' ? sortProducts(DEMO_PRODUCTS, 'newest') : DEMO_PRODUCTS.filter((_, i) => i % 2 === 0);
+  const list = s.id === 'on-sale' ? DEMO_PRODUCTS.filter((x) => x.presentations.some((v) => v.compareAt)) : s.type === 'bestSellers' ? sortProducts(DEMO_PRODUCTS, 'bestSelling') : s.type === 'newArrivals' ? sortProducts(DEMO_PRODUCTS, 'newest') : DEMO_PRODUCTS.filter((_, i) => i % 2 === 0);
   const items = list.slice(0, Math.max(1, s.props.itemsCount));
   const action = s.props.cta ? <button type="button" onClick={() => go(s.props.ctaTarget || 'catalog')} className="inline-flex items-center gap-1 text-sm font-semibold text-brand hover:underline">{s.props.cta} <ArrowRight size={14} /></button> : undefined;
   return (
@@ -462,7 +463,42 @@ function CtaFinal({ s }: P) {
   );
 }
 
+function Countdown({ s }: P) {
+  const { go } = useSim();
+  const days = Math.max(1, s.props.itemsCount || 3);
+  const [end] = useState(() => Date.now() + days * 864e5 - 37 * 60e3);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const left = Math.max(0, end - now);
+  const parts = [['días', Math.floor(left / 864e5)], ['horas', Math.floor(left / 36e5) % 24], ['min', Math.floor(left / 6e4) % 60], ['seg', Math.floor(left / 1e3) % 60]] as const;
+  const p = s.props;
+  return (
+    <section className={cn(s.variant === 'bar' ? 'py-3' : 'py-10 @3xl:py-14', toneCls(p.tone))} data-testid="countdown">
+      <Container className={cn('flex flex-col items-center gap-4 text-center', s.variant === 'bar' && '@3xl:flex-row @3xl:justify-center @3xl:gap-6')}>
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.2em] opacity-70">Termina en</p>
+          <h2 className="font-sim-heading text-2xl font-extrabold @3xl:text-3xl">{p.title}</h2>
+        </div>
+        <div className="flex gap-2" role="timer" aria-label={`Faltan ${parts.map(([l, v]) => `${v} ${l}`).join(', ')}`}>
+          {parts.map(([label, v]) => (
+            <div key={label} className="flex min-w-[64px] flex-col items-center rounded-sim-lg bg-white/10 px-3 py-2 ring-1 ring-white/15">
+              <span className="font-sim-heading text-2xl font-extrabold tabular-nums @3xl:text-3xl">{String(v).padStart(2, '0')}</span>
+              <span className="text-[10px] uppercase tracking-wider opacity-70">{label}</span>
+            </div>
+          ))}
+        </div>
+        {p.cta && <SimButton variant="accent" onClick={() => go(p.ctaTarget || 'catalog')}>{p.cta}</SimButton>}
+        {s.variant !== 'bar' && <p className="text-[11px] opacity-60">{p.subtitle}</p>}
+      </Container>
+    </section>
+  );
+}
+
 const MAP: Record<SectionInstance['type'], (p: P) => JSX.Element | null> = {
+  countdown: Countdown,
   announcement: Announcement,
   hero: Hero,
   slideshow: Slideshow,
@@ -485,12 +521,13 @@ const MAP: Record<SectionInstance['type'], (p: P) => JSX.Element | null> = {
 };
 
 /** Motor de render: convierte la lista de secciones de la configuración en componentes. */
-export function SectionRenderer({ section, index, highlight }: { section: SectionInstance; index: number; highlight?: boolean }) {
+export function SectionRenderer({ section, highlight }: { section: SectionInstance; index: number; highlight?: boolean }) {
   const Comp = MAP[section.type];
   const def = getSectionDef(section.type);
+  const topping = getTopping(section.id);
   return (
-    <Annotated id={def.annotation} label={`${def.label}`} reqId={`RF-HOME-${String(index + 1).padStart(2, '0')}`} className={cn(highlight && 'animate-flash')} as="section">
-      <div data-section-type={section.type} data-section-id={section.id}>
+    <Annotated id={topping?.annotation ?? def.annotation} label={topping?.name ?? def.label} reqId={section.id} className={cn(highlight && 'animate-flash')} as="section">
+      <div data-section-type={section.type} data-section-id={section.id} data-variant={section.variant}>
         <Comp s={section} />
       </div>
     </Annotated>

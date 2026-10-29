@@ -15,7 +15,7 @@ export function computeCart(cfg: ProjectConfig, session: SimSession) {
       const product = getProduct(l.productId);
       const variant = product?.presentations.find((v) => v.id === l.variantId);
       if (!product || !variant) return null;
-      let unit = variant.price;
+      let unit = cfg.features?.['b2b-price-lists'] && session.b2bMode ? Math.round(variant.price * 0.8) : variant.price;
       if (l.purchase === 'subscription') unit = Math.round(unit * (1 - cfg.subscriptions.discountPct / 100));
       const kit = findKit(cfg, l.kitId);
       if (kit) unit = Math.round(unit * (1 - kit.discountPct / 100));
@@ -45,6 +45,7 @@ export function CartContents({ onCheckout, compact }: { onCheckout: () => void; 
   const { setQty, removeLine, applyCode, addToCart } = useStudio();
   const [code, setCode] = useState('');
   const [codeMsg, setCodeMsg] = useState<string | null>(null);
+  const [delivery, setDelivery] = useState('ship');
   const c = computeCart(cfg, session);
   const recs = DEMO_PRODUCTS.filter((p) => totalStock(p) > 0 && !session.cart.some((l) => l.productId === p.id)).slice(0, 3);
 
@@ -116,14 +117,31 @@ export function CartContents({ onCheckout, compact }: { onCheckout: () => void; 
           </form>
         )}
         {cfg.cart.orderNotes && <textarea aria-label="Notas del pedido" placeholder="Notas del pedido (opcional)" rows={2} className="rounded-sim border border-slate-300 px-3 py-2 text-sm" />}
+        {cfg.features?.['store-pickup'] && (
+          <fieldset className="flex flex-col gap-1.5 text-sm" data-testid="pickup-options">
+            <legend className="mb-1 text-xs font-semibold text-slate-600">Entrega</legend>
+            {[['ship', 'Envío a domicilio'], ['pickup', 'Recoger en tienda (sin costo de envío)']].map(([v, l]) => (
+              <label key={v} className={cn('flex items-center gap-2 rounded-sim border px-3 py-2', delivery === v ? 'border-brand bg-brand/5' : 'border-slate-200')}>
+                <input type="radio" name="delivery" checked={delivery === v} onChange={() => setDelivery(v)} className="accent-[var(--sim-primary)]" /> {l}
+              </label>
+            ))}
+          </fieldset>
+        )}
         <dl className="space-y-1 text-sm">
           <div className="flex justify-between"><dt className="text-slate-500">Subtotal</dt><dd data-testid="cart-subtotal">{money(c.subtotal)}</dd></div>
           {c.discount > 0 && <div className="flex justify-between text-emerald-700"><dt>Descuento ({session.discountCode})</dt><dd>-{money(c.discount)}</dd></div>}
-          <div className="flex justify-between"><dt className="text-slate-500">Envío</dt><dd>{c.freeShipping ? 'Gratis' : 'Se calcula en el checkout'}</dd></div>
+          <div className="flex justify-between"><dt className="text-slate-500">Envío</dt><dd>{delivery === 'pickup' ? 'Recoger en tienda' : c.freeShipping ? 'Gratis' : 'Se calcula en el checkout'}</dd></div>
           <div className="flex justify-between border-t border-slate-100 pt-2 text-base font-bold"><dt>Total estimado</dt><dd data-testid="cart-total">{money(c.total)}</dd></div>
         </dl>
         {cfg.cart.preCheckoutInfo.map((k) => <p key={k} className="flex items-start gap-1.5 text-[11px] text-slate-500"><Info size={12} className="mt-0.5 shrink-0" />{PRE_INFO[k]}</p>)}
         <SimButton full className="h-12" onClick={onCheckout}><Lock size={16} /> Ir a pagar</SimButton>
+        {cfg.features?.['express-checkout'] && (
+          <div className="flex flex-col gap-1.5" data-testid="express-checkout">
+            <p className="text-center text-[11px] text-slate-400">o paga en un paso</p>
+            <button type="button" onClick={onCheckout} className="h-11 rounded-sim bg-slate-900 text-sm font-semibold text-white hover:bg-slate-800">Billetera digital · pago exprés</button>
+            <p className="text-center text-[10px] text-slate-400">Simulado: la disponibilidad depende de la pasarela del país.</p>
+          </div>
+        )}
         <p className="text-center text-[10px] text-slate-400">Valores de demostración</p>
       </div>
     </div>

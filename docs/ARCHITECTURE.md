@@ -1,33 +1,40 @@
 # Arquitectura — Tita Discovery Studio
 
-## Principio central: una sola fuente de verdad
+## Principio central (v2): respuestas → configuración derivada
 
 ```
- Panel Discovery ──escribe──▶  ProjectConfig  ◀──lee── Simulador (biblioteca de componentes + motor de render)
-  (preguntas declarativas)     (zustand + persist)  ◀──deriva── Panel PMO / anotaciones / exportaciones
+ Discovery ──answer()──▶ answers ─┐
+ Toppings  ──setTopping()▶ toppings├─▶ analyze() ──▶ configuración derivada ──▶ Simulador
+ Editar contenido ──────▶ content ┘        │                                   (SimSession: carrito, pedidos demo)
+                                           └──▶ Entregables / exportaciones
 ```
 
-- `ProjectConfig` (`src/types/project.ts`) describe páginas, navegación, secciones del Home y su orden, estilos, contenidos, atributos, filtros, ficha de producto, carrito, suscripciones, kits, captación, decisiones SAP y el estado de cada decisión.
-- Las preguntas (`src/config/questions.ts`) son **declarativas**: tipo de control, ruta (`path`) en la configuración, opciones con clasificación de alcance, condición de visibilidad y anotación técnica vinculada. Agregar una pregunta no requiere UI nueva si usa un tipo existente.
-- El simulador **no genera código**: un motor (`SectionRenderer`, `Router`) renderiza componentes reutilizables según la configuración.
-- El PMO **no guarda una copia** de las decisiones: `src/engine/pmo.ts` las deriva cada vez de la configuración (decisiones, requerimientos RF-*, riesgos, dependencias, alcance y mapa del sitio).
+- `DiscoveryProject` (`src/types/discovery.ts`) es lo único que se guarda: respuestas con estado y notas, decisiones sobre toppings, contenido de ejemplo personalizado y validaciones técnicas.
+- `analyze()` (`src/engine/derive.ts`) es una función pura y memoizada: calcula las preguntas visibles (reglas condicionales con punto fijo, porque una condición puede depender de un topping activado por otra respuesta), los toppings activos, las recomendaciones y la configuración del simulador (`ProjectConfig`, alias `SimConfig`).
+- Las preguntas (`src/config/discovery/questions-*.ts`) son declarativas: tipo, opciones con toppings vinculados, `showIf`, `effect`, `apply` y `preview`.
+- Los toppings (`src/config/discovery/toppings.ts`) declaran problema, variantes, parámetros (preguntas de seguimiento), dependencias, clasificación técnica, reglas de recomendación, `apply` y cómo se ven como sección.
+- Cambiar una respuesta recalcula todo sin borrar nada: parámetros, contenido y notas de un topping desactivado se conservan y vuelven si se reactiva.
+- Entregables (`src/engine/deliverables.ts`) y exportaciones (`src/engine/exports.ts`) se derivan del mismo análisis.
 
 ## Estructura
 
 ```
 src/
   types/project.ts           Modelo de datos (ProjectConfig, ScopeStatus, TechClass, DemoProduct…)
+  types/discovery.ts         Modelo v2: respuestas, toppings, condiciones, preguntas
   config/
-    questions.ts             7 fases y preguntas declarativas
-    sections.ts              Biblioteca de secciones del Home (variantes, props editables, alcance)
+    discovery/               10 etapas, 149 preguntas, 75 toppings
+    sections.ts              Secciones renderizables del Home
     annotations.ts           Especificaciones de implementación Shopify por componente
-    templates.ts             Plantillas de proyecto (bienestar, genérico) y tipos de página
+    templates.ts             Esqueleto base y tipos de página
   data/demoCatalog.ts        Catálogo, testimonios, artículos y FAQ de demostración
   engine/
-    answers.ts               Resumen de respuestas, alcance resultante, estado de decisión
-    catalog.ts               Filtros, facetas con contador, ordenamiento
-    pmo.ts                   Mapa del sitio, decisiones, requerimientos, riesgos
+    conditions.ts            Reglas condicionales declarativas
+    derive.ts                Motor de configuración progresiva
+    deliverables.ts          8 entregables automáticos
     exports.ts               JSON, Markdown y CSV
+    migrate.ts               Proyectos v1 → v2
+    catalog.ts               Filtros, facetas con contador, ordenamiento
     engine.test.ts           Pruebas unitarias
   store/
     useStudio.ts             Estado central persistido (proyectos, UI, sesión demo)
@@ -36,9 +43,10 @@ src/
   components/
     ui.tsx                   Primitivas accesibles (botones, switches, badges, modal)
     studio/                  Shell: proyectos, layout, vista previa, anotaciones, exportaciones
-    discovery/               Panel de fases, controles por tipo, esquemas visuales, constructor del Home
+    discovery/               Cuestionario guiado, controles de respuesta, orden del Home, validación
+    toppings/                Biblioteca de toppings
     sim/                     Simulador: chrome (header/footer/menús), secciones, páginas, ilustraciones
-    pmo/                     Panel PMO
+    pmo/                     Entregables
 scripts/e2e.mjs              QA end-to-end de los criterios de aceptación
 ```
 

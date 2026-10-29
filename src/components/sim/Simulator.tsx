@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useStudio, type Device } from '@/store/useStudio';
 import { useSimUi } from '@/store/useSimUi';
 import type { ProjectConfig } from '@/types/project';
-import { LeadPopup, QuickView, SimFooter, SimHeader, SimToast } from './Chrome';
+import { LeadPopup, QuickView, SimFooter, SimHeader, SimToast, WhatsAppButton } from './Chrome';
 import { CartDrawer, CartPage, CheckoutPage, OrderPage } from './pages/CartPages';
 import { CollectionPage } from './pages/CollectionPage';
 import { AboutPage, AccountPage, BlogPage, BrandsPage, ContactPage, CustomPage, FaqPage, KitsPage, MissingPage, PoliciesPage, TrackingPage } from './pages/ContentPages';
@@ -55,7 +55,7 @@ function Router({ cfg, highlight }: { cfg: ProjectConfig; highlight: string | nu
     case 'home':
       return (
         <div data-testid="home-page">
-          {cfg.home.sections.length === 0 && <Container className="py-24 text-center text-sm text-slate-500">El Home no tiene secciones. Agrégalas en la fase 2.</Container>}
+          {cfg.home.sections.length === 0 && <EmptyHome />}
           {cfg.home.sections.map((s, i) => <SectionRenderer key={s.id} section={s} index={i} highlight={highlight === s.id} />)}
         </div>
       );
@@ -71,6 +71,21 @@ function Router({ cfg, highlight }: { cfg: ProjectConfig; highlight: string | nu
     case 'kits': return <KitsPage title={page.title} />;
     case 'custom': return <CustomPage title={page.title} body={page.body} />;
   }
+}
+
+/** Home aún sin decisiones: esqueleto que invita a responder (representación acumulativa). */
+function EmptyHome() {
+  return (
+    <Container className="py-10" >
+      <div className="flex flex-col gap-4" data-testid="empty-home">
+        <div className="rounded-sim-lg border-2 border-dashed border-slate-200 bg-slate-50 p-10 text-center">
+          <p className="font-sim-heading text-2xl font-extrabold text-slate-800">Tu Home se construye con tus respuestas</p>
+          <p className="mx-auto mt-2 max-w-md text-sm text-slate-500">Responde la etapa "Home y navegación": cada decisión agrega aquí su sección (banner, categorías, productos, confianza…).</p>
+        </div>
+        {[0, 1, 2].map((i) => <div key={i} className="h-24 animate-pulse rounded-sim-lg bg-slate-100" style={{ animationDelay: `${i * 150}ms` }} />)}
+      </div>
+    </Container>
+  );
 }
 
 /** Dispositivo simulado: renderiza la tienda completa a partir de la configuración. */
@@ -146,6 +161,7 @@ export function Simulator({ cfg, device }: { cfg: ProjectConfig; device: Device 
         <div ref={setOverlayEl} className="pointer-events-none absolute inset-0 z-40 [&>*]:pointer-events-auto" />
         <CartDrawer />
         <LeadPopup />
+        <WhatsAppButton />
         <QuickView />
         <SimToast />
         <div className="pointer-events-none absolute bottom-2 right-2 z-[45] rounded-full bg-slate-900/75 px-2.5 py-1 text-[10px] font-medium text-white">Simulación · datos de demostración</div>

@@ -1,8 +1,8 @@
-import { Eye, ShoppingBag, Star } from 'lucide-react';
+import { Eye, Heart, ShoppingBag, Star } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { minPrice, totalStock } from '@/data/demoCatalog';
 import { cn } from '@/lib/utils';
-import { useStudio } from '@/store/useStudio';
+import { useSession, useStudio } from '@/store/useStudio';
 import { useSimUi } from '@/store/useSimUi';
 import type { DemoProduct, SectionProps } from '@/types/project';
 import { ProductArt } from './Art';
@@ -71,6 +71,10 @@ export function ProductCard({ product }: { product: DemoProduct }) {
   const { cfg, money, go } = useSim();
   const addToCart = useStudio((s) => s.addToCart);
   const setQuickView = useSimUi((s) => s.setQuickView);
+  const toggleWishlist = useStudio((s) => s.toggleWishlist);
+  const session = useSession();
+  const wished = session.wishlist?.includes(product.id) ?? false;
+  const b2b = !!cfg.features?.['b2b-price-lists'] && !!session.b2bMode;
   const f = cfg.catalog.cardFields;
   const first = product.presentations.find((v) => v.stock > 0) ?? product.presentations[0];
   const price = minPrice(product);
@@ -95,6 +99,11 @@ export function ProductCard({ product }: { product: DemoProduct }) {
           {out && <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] font-semibold text-white">Agotado</span>}
         </div>
       </button>
+      {cfg.features?.wishlist && (
+        <button type="button" aria-pressed={wished} onClick={() => toggleWishlist(product.id)} className={cn('absolute right-2 z-10 grid h-9 w-9 place-items-center rounded-full bg-white/95 shadow-md transition', f.includes('quickView') ? 'top-12' : 'top-2', wished ? 'text-rose-500' : 'text-slate-500 hover:text-rose-500')} aria-label={wished ? `Quitar ${product.name} de favoritos` : `Guardar ${product.name} en favoritos`} data-testid="wishlist-toggle">
+          <Heart size={16} fill={wished ? 'currentColor' : 'none'} />
+        </button>
+      )}
       {f.includes('quickView') && (
         <button type="button" onClick={() => setQuickView(product.id)} className="absolute right-2 top-2 grid h-9 w-9 place-items-center rounded-full bg-white/95 text-slate-700 shadow-md transition hover:text-brand @3xl:opacity-0 @3xl:group-hover:opacity-100" aria-label={`Vista rápida de ${product.name}`}>
           <Eye size={16} />
@@ -109,7 +118,7 @@ export function ProductCard({ product }: { product: DemoProduct }) {
         {f.includes('rating') && <Stars value={product.rating} count={product.reviews} />}
         {f.includes('price') && (
           <div className="mt-auto flex items-baseline gap-2 pt-1">
-            <span className="font-bold">{product.presentations.length > 1 ? 'Desde ' : ''}{money(price)}</span>
+            <span className="font-bold">{product.presentations.length > 1 ? 'Desde ' : ''}{money(b2b ? Math.round(price * 0.8) : price)}</span>{b2b && <span className="text-[10px] font-semibold text-slate-500">distribuidor</span>}
             {f.includes('compareAt') && cmp && <span className="text-xs text-slate-400 line-through">{money(cmp)}</span>}
           </div>
         )}

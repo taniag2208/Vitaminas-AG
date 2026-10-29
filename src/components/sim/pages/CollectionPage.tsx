@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, SlidersHorizontal, X } from 'lucide-react';
 import { applyFilters, effectiveFilters, facets, filterLabel, SORT_LABEL, sortProducts, type ActiveFilters } from '@/engine/catalog';
-import { DEMO_PRODUCTS } from '@/data/demoCatalog';
+import { DEMO_PRODUCTS, totalStock } from '@/data/demoCatalog';
 import { cn } from '@/lib/utils';
 import { useStudio } from '@/store/useStudio';
 import { useSimUi } from '@/store/useSimUi';
@@ -80,7 +80,11 @@ export function CollectionPage() {
   const results = useMemo(() => {
     let list = applyFilters(DEMO_PRODUCTS, active, cfg.catalog);
     if (query) list = list.filter((p) => `${p.name} ${p.brand} ${p.category} ${p.ingredients.join(' ')}`.toLowerCase().includes(query));
-    return sortProducts(list, sort);
+    const sorted = sortProducts(list, sort);
+    const oos = cfg.catalog.outOfStock ?? 'show';
+    if (oos === 'hide') return sorted.filter((p) => totalStock(p) > 0);
+    if (oos === 'last') return [...sorted.filter((p) => totalStock(p) > 0), ...sorted.filter((p) => totalStock(p) === 0)];
+    return sorted;
   }, [active, cfg.catalog, sort, query]);
 
   const perPage = cfg.catalog.perRowDesktop * 2;

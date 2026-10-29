@@ -1,5 +1,7 @@
 import { create } from 'zustand';
-import type { PreviewAction } from '@/config/previewTargets';
+import type { PreviewSpec } from '@/types/discovery';
+
+type PreviewAction = NonNullable<PreviewSpec['action']>;
 
 /** Estado efímero de la simulación (no se persiste ni forma parte de las decisiones). */
 interface SimUi {

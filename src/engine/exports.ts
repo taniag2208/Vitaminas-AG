@@ -1,110 +1,160 @@
 import { TECH_CLASS_LABEL } from '@/config/annotations';
-import { getSectionDef } from '@/config/sections';
-import { SCOPE_LABEL, STATUS_LABEL } from '@/engine/answers';
-import { filterLabel, SORT_LABEL } from '@/engine/catalog';
-import { buildSitemap, decisionRows, requirements, risks, type SitemapNode } from '@/engine/pmo';
+import { STAGES } from '@/config/discovery/stages';
+import { GROUP_LABEL } from '@/config/discovery/toppings';
+import { filterLabel } from '@/engine/catalog';
 import { slugify } from '@/lib/utils';
+import type { DiscoveryProject } from '@/types/discovery';
 import type { ProjectConfig } from '@/types/project';
+import { isGiven } from './conditions';
+import { analyze } from './derive';
+import {
+  backlog, dependencies, executiveSummary, pagesAndComponents, pendingDecisions, PRIORITY_LABEL, questionMatrix, requirements, risks, shopifyClassification,
+  toppingInventory, validationChecklist, type Requirement,
+} from './deliverables';
+import { ANSWER_STATUS_LABEL, SCOPE_LABEL, TOPPING_STATUS_LABEL } from './labels';
+import type { SitemapNode } from './sitemap';
+import { answerText } from './summary';
 
-const DISCLAIMER = '> Generado por Tita Discovery Studio. Los productos, precios y contenidos del simulador son datos de demostración. Toda compatibilidad marcada como "dependiente del tema" debe validarse con el tema seleccionado.';
+/** Exportaciones (Markdown, CSV y JSON) generadas desde el estado actual del Discovery. */
 
-const header = (c: ProjectConfig, title: string) => `# ${title} — ${c.meta.name}\n\nCliente: **${c.meta.client}** · Tema Shopify: **${c.meta.themeName ?? 'no definido (compatibilidad pendiente)'}** · Actualizado: ${new Date(c.meta.updatedAt).toLocaleString('es-CO')}\n\n${DISCLAIMER}\n`;
+const DISCLAIMER = '> Generado por Tita Discovery Studio a partir del Discovery. Productos, precios y contenidos del simulador son datos de demostración. La compatibilidad "dependiente del tema" debe validarse con el tema seleccionado. Lo "solicitado" no equivale a "aprobado".';
 
-const csvCell = (v: string) => `"${String(v).replace(/"/g, '""')}"`;
-const toCsv = (rows: string[][]) => '﻿' + rows.map((r) => r.map(csvCell).join(',')).join('\n');
+const head = (p: DiscoveryProject, title: string) => {
+  const c = analyze(p).config;
+  return `# ${title} — ${p.meta.name}\n\nCliente: **${p.meta.client}** · Tema Shopify: **${c.meta.themeName ?? 'no definido (compatibilidad pendiente)'}** · Actualizado: ${new Date(p.meta.updatedAt).toLocaleString('es-CO')}\n\n${DISCLAIMER}\n`;
+};
+const cell = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+const csv = (rows: unknown[][]) => '﻿' + rows.map((r) => r.map(cell).join(',')).join('\n');
+const md = (v: string) => String(v).replace(/\|/g, '/').replace(/\n/g, ' ');
 
 /* ───────────── JSON ───────────── */
-export const exportJson = (c: ProjectConfig) => JSON.stringify({ exportedAt: new Date().toISOString(), generator: 'tita-discovery-studio', config: c }, null, 2);
+export const exportProjectJson = (p: DiscoveryProject) => JSON.stringify({ exportedAt: new Date().toISOString(), generator: 'tita-discovery-studio', schemaVersion: 2, project: p }, null, 2);
+export const exportConfigJson = (p: DiscoveryProject) => JSON.stringify({ exportedAt: new Date().toISOString(), note: 'Configuración DERIVADA de las respuestas. Para reimportar use la exportación del proyecto.', config: analyze(p).config }, null, 2);
 
-/* ───────────── Mapa del sitio ───────────── */
+/* ───────────── 1. Resumen ejecutivo ───────────── */
+export function exportExecutive(p: DiscoveryProject) {
+  const e = executiveSummary(p);
+  return `${head(p, 'Resumen ejecutivo')}
+## El negocio
+${e.business.map(([k, v]) => `- **${k}:** ${v}`).join('\n')}
+
+## Avance del Discovery
+- ${e.progress.pct}% resuelto (${e.progress.answered} respondidas · ${e.progress.toValidate} por validar · ${e.progress.na} no aplica · ${e.progress.pending} pendientes)
+${e.stages.map(({ stage, stats }) => `- ${stage.index}. ${stage.title}: ${stats.resolved}/${stats.total}`).join('\n')}
+
+## Funcionalidades
+- ${e.toppings.approved} aprobadas · ${e.toppings.requested} solicitadas sin aprobar · ${e.toppings.discarded} descartadas · ${e.toppings.recommended} recomendaciones abiertas
+
+## Home definido
+${e.home.map((h, i) => `${i + 1}. ${h}`).join('\n') || '_Sin secciones todavía_'}
+
+## Riesgos altos
+${e.risks.map((r) => `- **${r.area}:** ${r.text} → _${r.mitigation}_`).join('\n') || '- Ninguno'}
+
+## Notas y próximos pasos
+${e.notes.map((n) => `- ${n}`).join('\n') || '- Pendiente'}
+`;
+}
+
+/* ───────────── 2. Matriz de requerimientos ───────────── */
+export const exportRequirementsCsv = (p: DiscoveryProject) => csv([
+  ['ID', 'Funcionalidad', 'Grupo', 'Problema de negocio', 'Estado', 'Prioridad', 'Alcance', 'Clasificación técnica', 'Validación técnica', 'Origen', 'Dependencias', 'Criterios de aceptación', 'Notas'],
+  ...requirements(p).map((r) => [r.id, r.name, GROUP_LABEL[r.group], r.problem, TOPPING_STATUS_LABEL[r.status], r.priority ? PRIORITY_LABEL[r.priority] : '', SCOPE_LABEL[r.scope], r.classes.map((c) => TECH_CLASS_LABEL[c]).join('; '), r.validation, r.origin, r.dependencies.join('; '), r.acceptance.join('; '), r.notes]),
+]);
+
+const reqBlock = (r: Requirement) => `### ${r.id} · ${r.name}
+- Estado: **${TOPPING_STATUS_LABEL[r.status]}**${r.priority ? ` · Prioridad: ${PRIORITY_LABEL[r.priority]}` : ''} · Alcance: ${SCOPE_LABEL[r.scope]} · Validación técnica: ${r.validation}
+- Problema: ${r.problem}
+- Funcionalidad: ${r.functionality}
+- Implementación sugerida: ${r.implementation}
+- Clasificación: ${r.classes.map((c) => TECH_CLASS_LABEL[c]).join(', ')}${r.themePending ? ' · **compatibilidad de tema pendiente**' : ''}
+- Origen: ${r.origin}
+- Dependencias: ${r.dependencies.join('; ') || '—'}
+- Riesgos: ${r.risks.join('; ') || '—'}
+- Criterios de aceptación:
+${r.acceptance.map((a) => `  - [ ] ${a}`).join('\n')}
+`;
+
+export const exportRequirementsMd = (p: DiscoveryProject) => `${head(p, 'Matriz de requerimientos funcionales')}
+| ID | Funcionalidad | Grupo | Estado | Prioridad | Alcance | Clasificación |
+|---|---|---|---|---|---|---|
+${requirements(p).map((r) => `| ${r.id} | ${md(r.name)} | ${GROUP_LABEL[r.group]} | ${TOPPING_STATUS_LABEL[r.status]} | ${r.priority ? PRIORITY_LABEL[r.priority] : '—'} | ${SCOPE_LABEL[r.scope]} | ${r.classes.map((c) => TECH_CLASS_LABEL[c]).join(', ')} |`).join('\n')}
+
+${requirements(p).map(reqBlock).join('\n')}`;
+
+/* ───────────── 3. Mapa de páginas y componentes ───────────── */
 const sitemapLines = (nodes: SitemapNode[], depth = 0): string[] =>
-  nodes.flatMap((n) => [
-    `${'  '.repeat(depth)}- **${n.title}** \`/${n.route}\`${n.inMenu ? ' · menú' : ''}${n.inFooter ? ' · footer' : ''}${n.note ? ` — _${n.note}_` : ''}`,
-    ...(n.children ? sitemapLines(n.children, depth + 1) : []),
-  ]);
+  nodes.flatMap((n) => [`${'  '.repeat(depth)}- **${n.title}** \`/${n.route}\`${n.inMenu ? ' · menú' : ''}${n.inFooter ? ' · footer' : ''}${n.note ? ` — _${n.note}_` : ''}`, ...(n.children ? sitemapLines(n.children, depth + 1) : [])]);
 
-export const exportSitemap = (c: ProjectConfig) => `${header(c, 'Mapa del sitio')}\n${sitemapLines(buildSitemap(c)).join('\n')}\n\n## Menú principal\n${c.pages.filter((p) => p.inMenu).map((p) => `- ${p.title}`).join('\n') || '- (vacío)'}\n\n## Menú footer\n${c.pages.filter((p) => p.inFooter).map((p) => `- ${p.title}`).join('\n') || '- (vacío)'}\n`;
+export function exportPages(p: DiscoveryProject) {
+  const x = pagesAndComponents(p);
+  const label: Record<string, string> = { home: 'Inicio', catalog: 'Catálogo (PLP)', product: 'Ficha de producto (PDP)', cart: 'Carrito' };
+  return `${head(p, 'Mapa de páginas y componentes')}
+## Mapa del sitio
+${sitemapLines(x.sitemap).join('\n')}
 
-/* ───────────── Decisiones pendientes ───────────── */
-export const exportPendingCsv = (c: ProjectConfig) =>
-  toCsv([
-    ['ID', 'Fase', 'Pregunta', 'Respuesta actual', 'Estado', 'Responsable', 'Alcance', 'Notas'],
-    ...decisionRows(c)
-      .filter((r) => r.status !== 'approved')
-      .map((r) => [r.id, r.phase, r.question, r.answer, STATUS_LABEL[r.status], r.owner, SCOPE_LABEL[r.scope], r.notes]),
-  ]);
+## Componentes globales
+${x.global.map((g) => `- ${g}`).join('\n')}
 
-export const exportDecisionsCsv = (c: ProjectConfig) =>
-  toCsv([
-    ['ID', 'Fase', 'Pregunta', 'Respuesta', 'Estado', 'Responsable', 'Alcance', 'Notas'],
-    ...decisionRows(c).map((r) => [r.id, r.phase, r.question, r.answer, STATUS_LABEL[r.status], r.owner, SCOPE_LABEL[r.scope], r.notes]),
-  ]);
-
-export const exportPendingMd = (c: ProjectConfig) => {
-  const rows = decisionRows(c).filter((r) => r.status !== 'approved');
-  const flagged = requirements(c).filter((r) => r.scope !== 'proposal');
-  return `${header(c, 'Decisiones pendientes')}
-## Decisiones sin aprobar (${rows.length})
-| Fase | Pregunta | Respuesta actual | Estado | Responsable |
-|---|---|---|---|---|
-${rows.map((r) => `| ${r.phase} | ${r.question} | ${r.answer.replace(/\|/g, '/')} | ${STATUS_LABEL[r.status]} | ${r.owner} |`).join('\n')}
-
-## Funcionalidades que requieren revisión de alcance o viabilidad (${flagged.length})
-${flagged.map((r) => `- **${r.id} ${r.name}** — ${SCOPE_LABEL[r.scope]}`).join('\n') || '- Ninguna'}
+${Object.entries(x.components).map(([k, list]) => `## ${label[k]}\n${list.map((c, i) => `${k === 'home' ? `${i + 1}.` : '-'} ${c}`).join('\n') || '- (sin componentes)'}`).join('\n\n')}
 `;
+}
+
+/* ───────────── 4. Inventario de toppings ───────────── */
+export const exportToppingsCsv = (p: DiscoveryProject) => csv([
+  ['Topping', 'Grupo', 'Estado', 'Origen', 'Variante', 'Parámetros', 'Problema que resuelve', 'Clasificación', 'Alcance', 'Prioridad', 'Validación técnica', 'Motivo de recomendación', 'Notas'],
+  ...toppingInventory(p).map((v) => [v.def.name, GROUP_LABEL[v.def.group], TOPPING_STATUS_LABEL[v.status], v.source === 'answer' ? `Respuesta ${v.activatedBy.join(', ')}` : v.source === 'manual' ? 'Consultor' : 'Recomendación', v.def.variants?.find((x) => x.id === v.variant)?.label ?? '', JSON.stringify(v.params), v.def.problem, v.def.techClass.map((c) => TECH_CLASS_LABEL[c]).join('; '), SCOPE_LABEL[v.def.scope], v.record.priority ? PRIORITY_LABEL[v.record.priority] : '', v.record.validation ?? 'pending', v.reasons.join(' / '), v.record.notes ?? '']),
+]);
+
+export const exportToppingsMd = (p: DiscoveryProject) => `${head(p, 'Inventario de toppings')}
+| Topping | Grupo | Estado | Origen | Variante |
+|---|---|---|---|---|
+${toppingInventory(p).map((v) => `| ${md(v.def.name)} | ${GROUP_LABEL[v.def.group]} | ${TOPPING_STATUS_LABEL[v.status]} | ${v.source === 'answer' ? v.activatedBy.join(', ') : v.source === 'manual' ? 'Consultor' : md(v.reasons[0] ?? '')} | ${v.def.variants?.find((x) => x.id === v.variant)?.label ?? '—'} |`).join('\n')}
+`;
+
+/* ───────────── 5. Backlog ───────────── */
+export const exportBacklogCsv = (p: DiscoveryProject) => csv([['Clave', 'Épica', 'Tipo', 'Título', 'Detalle', 'Prioridad', 'Estado', 'Requerimiento'], ...backlog(p).map((b) => [b.key, b.epic, b.type, b.title, b.detail, b.priority, b.status, b.requirement])]);
+export const exportBacklogMd = (p: DiscoveryProject) => {
+  const items = backlog(p);
+  const epics = [...new Set(items.map((b) => b.epic))];
+  return `${head(p, 'Backlog funcional y técnico')}\n${epics.map((e) => `## Épica: ${e}\n${items.filter((b) => b.epic === e).map((b) => `- [ ] **${b.key}** (${b.type} · ${b.priority} · ${b.status}) ${b.title} — _${b.requirement}_`).join('\n')}`).join('\n\n')}\n`;
 };
 
-/* ───────────── Criterios de aceptación ───────────── */
-export const exportAcceptance = (c: ProjectConfig) =>
-  `${header(c, 'Criterios de aceptación')}\n${requirements(c)
-    .map((r) => `## ${r.id} · ${r.name}\n_${r.area} · ${SCOPE_LABEL[r.scope]}_\n\n${r.acceptance.map((a) => `- [ ] ${a}`).join('\n')}\n`)
-    .join('\n')}`;
-
-/* ───────────── Resumen funcional ───────────── */
-export const exportFunctionalSummary = (c: ProjectConfig) => {
-  const reqs = requirements(c);
-  const rk = risks(c);
-  return `${header(c, 'Resumen funcional')}
-## Identidad
-- Marca: **${c.brand.storeName}** (${c.brand.identity === 'multi' ? 'multimarca' : 'monomarca'})
-- Colores: primario ${c.brand.primary}, secundario ${c.brand.secondary}, acento ${c.brand.accent}
-- Tipografías: ${c.brand.headingFont} / ${c.brand.bodyFont}
-- Menú: ${c.header.menuType}; encabezado ${c.header.sticky ? 'fijo' : 'estático'}; elementos: ${c.header.elements.join(', ')}
-
-## Home (orden)
-${c.home.sections.map((s, i) => `${i + 1}. ${getSectionDef(s.type).label} (${s.variant})${s.props.title ? ` — "${s.props.title}"` : ''}`).join('\n')}
-
-## Catálogo
-- Organización: ${c.catalog.organization}; categorías: ${c.catalog.categories.join(', ')}
-- Filtros (${c.catalog.filterLayout}, móvil ${c.catalog.mobileFilter}): ${c.catalog.filters.map((f) => filterLabel(f, c.catalog)).join(', ')}
-- Ordenamiento: ${c.catalog.sorts.map((s) => SORT_LABEL[s]).join(', ')}
-- Tarjeta: ${c.catalog.cardFields.join(', ')}; ${c.catalog.perRowDesktop} por fila (móvil ${c.catalog.perRowMobile})
-
-## Ficha de producto
-- Layout ${c.product.layout}, galería ${c.product.gallery}, info en ${c.product.infoDisplay}, variantes ${c.product.variantStyle}
-- Bloques: ${c.product.infoBlocks.join(', ')}; reseñas: ${c.product.reviews}; relacionados: ${c.product.related}
-
-## Carrito y compra
-- ${c.cart.type === 'drawer' ? 'Carrito lateral' : 'Página de carrito'}; envío gratis desde ${c.cart.freeShippingBar ? c.cart.freeShippingThreshold : 'N/A'}
-- Pagos esperados: ${c.cart.paymentMethods.join(', ') || 'por definir'}; envíos: ${c.cart.shippingRules.join(', ') || 'por definir'}
-
-## Crecimiento
-- Suscripciones: ${c.subscriptions.enabled ? `Sí (${c.subscriptions.frequencies.join(', ')}, ${c.subscriptions.discountPct}%)` : 'No'}
-- Kits: ${c.bundles.enabled ? c.bundles.kits.map((k) => k.name).join(', ') || 'Sí (sin definir)' : 'No'}
-- Formularios: ${c.leads.forms.join(', ') || '—'}; automatizaciones: ${c.leads.automations.join(', ') || '—'}
-
-## Integración SAP
-${Object.entries({ 'Origen de producto': c.sap.productSource, 'Enriquecimiento': c.sap.enrichmentOwner, Precios: c.sap.priceSource, Inventario: c.sap.inventorySource, 'Frecuencia inventario': c.sap.inventoryFrequency, Clientes: c.sap.customerSync, Pedidos: c.sap.orderSync, 'Estados de pedido': c.sap.orderStatuses.join(', '), Kits: c.sap.bundleHandling, Renovaciones: c.sap.renewalHandling, Errores: c.sap.errorHandling.join(', '), Integrador: c.sap.integratorName, Responsables: c.sap.owners }).map(([k, v]) => `- ${k}: ${v || '_por definir_'}`).join('\n')}
-
-## Requerimientos funcionales (${reqs.length})
-| ID | Requerimiento | Área | Clasificación técnica | Alcance |
+/* ───────────── 6. Dependencias, riesgos y pendientes ───────────── */
+export const exportRisksMd = (p: DiscoveryProject) => `${head(p, 'Dependencias, riesgos y decisiones pendientes')}
+## Riesgos (${risks(p).length})
+| ID | Nivel | Área | Riesgo | Mitigación |
 |---|---|---|---|---|
-${reqs.map((r) => `| ${r.id} | ${r.name} | ${r.area} | ${r.classes.map((x) => TECH_CLASS_LABEL[x]).join(', ')}${r.themePending ? ' (tema pendiente)' : ''} | ${SCOPE_LABEL[r.scope]} |`).join('\n')}
+${risks(p).map((r) => `| ${r.id} | ${r.level} | ${r.area} | ${md(r.text)} | ${md(r.mitigation)} |`).join('\n')}
 
-## Riesgos (${rk.length})
-${rk.map((x) => `- **${x.id} [${x.level}] ${x.area}:** ${x.text} → _${x.mitigation}_`).join('\n')}
+## Dependencias
+${dependencies(p).map(([d, ids]) => `- ${d} → ${ids.join(', ')}`).join('\n') || '- Ninguna'}
+
+## Decisiones pendientes (${pendingDecisions(p).length})
+| Etapa | Pregunta | Estado | Notas |
+|---|---|---|---|
+${pendingDecisions(p).map((d) => `| ${d.stage.index}. ${d.stage.short} | ${md(d.q.text)} | ${ANSWER_STATUS_LABEL[d.status]} | ${md(d.notes)} |`).join('\n')}
 `;
-};
+export const exportPendingCsv = (p: DiscoveryProject) => csv([['ID', 'Etapa', 'Pregunta', 'Estado', 'Notas'], ...pendingDecisions(p).map((d) => [d.q.id, d.stage.title, d.q.text, ANSWER_STATUS_LABEL[d.status], d.notes])]);
+
+/* ───────────── 7. Clasificación Shopify ───────────── */
+export const exportShopifyMd = (p: DiscoveryProject) => `${head(p, 'Clasificación preliminar de implementación Shopify')}
+${shopifyClassification(p).map((g) => `## ${g.label} (${g.items.length})\n${g.items.map((r) => `- ${r.id} ${r.name} — ${TOPPING_STATUS_LABEL[r.status]}`).join('\n') || '- Ninguno'}`).join('\n\n')}
+`;
+
+/* ───────────── 8. Checklist de validación ───────────── */
+export const exportChecklistMd = (p: DiscoveryProject) => `${head(p, 'Checklist de validación con el cliente')}
+${validationChecklist(p).map((c) => `- [${c.done ? 'x' : ' '}] **${c.text}** — ${c.detail}`).join('\n')}
+
+## Funcionalidades a aprobar
+${requirements(p).filter((r) => r.status === 'requested').map((r) => `- [ ] ${r.name} (${SCOPE_LABEL[r.scope]})`).join('\n') || '- Ninguna'}
+`;
+
+/* ───────────── Banco de preguntas y respuestas ───────────── */
+export const exportAnswersCsv = (p: DiscoveryProject) => csv([
+  ['ID', 'Etapa', 'Categoría', 'Pregunta', 'Tipo', 'Aplica', 'Estado', 'Respuesta', 'Regla condicional', 'Toppings vinculados', 'Efecto en el simulador', 'Notas del consultor'],
+  ...questionMatrix(p).map((r) => [r.q.id, r.stage, r.q.category, r.q.text, r.q.type, r.applies ? 'Sí' : 'No', r.status ? ANSWER_STATUS_LABEL[r.status] : 'No aplica por condición', r.answer, r.rule, r.toppings.join('; '), r.q.effect, r.notes]),
+]);
 
 /* ───────────── Especificación para Claude Code ───────────── */
 function metafields(c: ProjectConfig) {
@@ -125,30 +175,31 @@ function metafields(c: ProjectConfig) {
   return m;
 }
 
-export const exportClaudeSpec = (c: ProjectConfig) => {
-  const reqs = requirements(c);
-  const apps = [...new Set(reqs.filter((r) => r.classes.includes('app')).flatMap((r) => r.dependencies.filter((d) => /app/i.test(d))))];
-  return `${header(c, 'Especificación de implementación Shopify (para Claude Code)')}
+export function exportClaudeSpec(p: DiscoveryProject) {
+  const c = analyze(p).config;
+  const reqs = requirements(p).filter((r) => r.status !== 'discarded');
+  const apps = [...new Set(reqs.filter((r) => r.classes.includes('app')).map((r) => r.name))];
+  return `${head(p, 'Especificación de implementación Shopify (para Claude Code)')}
 ## Contexto
-Implementar la tienda Shopify B2C **${c.brand.storeName}** a partir de las decisiones del Discovery. La integración con SAP la desarrolla un integrador externo: **no implementar lógica de integración SAP**; solo respetar los campos y flujos indicados.
+Implementar la tienda Shopify **${c.brand.storeName}** según el Discovery. La integración SAP la desarrolla un integrador externo: **no implementar lógica de integración SAP**; solo respetar los campos y flujos indicados.
 
 ## Reglas
-1. No inventar compatibilidades del tema. Todo ítem marcado "dependiente del tema" debe verificarse en el tema ${c.meta.themeName ?? '(aún no definido)'} antes de construirse; si no existe, crear una sección personalizada OS 2.0 con schema configurable.
-2. Los textos de beneficios, nutrición y certificaciones se cargan desde metafields con contenido aprobado; no escribir afirmaciones de salud.
-3. Los ítems con alcance distinto a "Contemplada en la propuesta" requieren confirmación antes de implementarse.
+1. No inventar compatibilidades del tema. Todo ítem "dependiente del tema" se verifica en ${c.meta.themeName ?? 'el tema (aún no definido)'}; si no existe, crear una sección OS 2.0 con schema configurable.
+2. Beneficios, nutrición y certificaciones se cargan desde metafields con contenido aprobado; no escribir afirmaciones de salud.
+3. Implementar primero lo **aprobado** según prioridad. Lo **solicitado** sin aprobar requiere confirmación.
 
 ## Tokens de marca
 \`\`\`json
-${JSON.stringify({ colors: { primary: c.brand.primary, secondary: c.brand.secondary, accent: c.brand.accent }, typography: { heading: c.brand.headingFont, body: c.brand.bodyFont }, radius: c.brand.radius }, null, 2)}
+${JSON.stringify({ colors: { primary: c.brand.primary, secondary: c.brand.secondary, accent: c.brand.accent }, typography: { heading: c.brand.headingFont, body: c.brand.bodyFont }, radius: c.brand.radius, tone: c.context?.tone }, null, 2)}
 \`\`\`
 
 ## Navegación
-- Menú principal (${c.header.menuType}): ${c.pages.filter((p) => p.inMenu).map((p) => p.title).join(', ')}
-- Footer: ${c.pages.filter((p) => p.inFooter).map((p) => p.title).join(', ')}
+- Menú (${c.header.menuType}): ${c.pages.filter((x) => x.inMenu).map((x) => x.title).join(', ')}
+- Footer: ${c.pages.filter((x) => x.inFooter).map((x) => x.title).join(', ')}
 - Colecciones: ${c.catalog.categories.join(', ')}
 
 ## templates/index.json — secciones en orden
-${c.home.sections.map((s, i) => `${i + 1}. \`${s.type}\` (variante ${s.variant}) — ${JSON.stringify({ title: s.props.title, subtitle: s.props.subtitle, cta: s.props.cta, columns: s.props.columns, items: s.props.itemsCount })}`).join('\n')}
+${c.home.sections.map((s, i) => `${i + 1}. \`${s.id}\` (sección ${s.type}, variante ${s.variant}) — ${JSON.stringify({ title: s.props.title, subtitle: s.props.subtitle, cta: s.props.cta })}`).join('\n') || '_Sin secciones_'}
 
 ## Metafields de producto
 | Namespace.key | Tipo | Uso |
@@ -162,17 +213,11 @@ ${c.catalog.filters.map((f) => `- ${filterLabel(f, c.catalog)}`).join('\n')}
 ${apps.map((a) => `- ${a}`).join('\n') || '- Ninguna'}
 
 ## Requerimientos
-${reqs.map((r) => `### ${r.id} · ${r.name}
-- Área: ${r.area} · Alcance: ${SCOPE_LABEL[r.scope]}
-- Clasificación: ${r.classes.map((x) => TECH_CLASS_LABEL[x]).join(', ')}${r.themePending ? ' · **compatibilidad de tema pendiente**' : ''}
-- Funcionalidad: ${r.functionality}
-- Implementación sugerida: ${r.implementation}
-- Dependencias: ${r.dependencies.join('; ') || '—'}
-- Riesgos: ${r.risks.join('; ') || '—'}
-- Criterios de aceptación:
-${r.acceptance.map((a) => `  - [ ] ${a}`).join('\n')}
-`).join('\n')}
-## Configuración completa
-Ver exportación JSON del proyecto (\`config\`) como fuente de verdad.
+${reqs.map(reqBlock).join('\n')}
+## Respuestas del Discovery
+${STAGES.map((s) => `### ${s.index}. ${s.title}\n${questionMatrix(p).filter((r) => r.q.stage === s.id && r.applies && isGiven(p.answers[r.q.id])).map((r) => `- ${r.q.text} → ${answerText(r.q, p.answers[r.q.id].value)}`).join('\n') || '- (sin respuestas)'}`).join('\n\n')}
 `;
-};
+}
+
+export const fileBase = (p: DiscoveryProject) => slugify(p.meta.name);
+export type { ProjectConfig };

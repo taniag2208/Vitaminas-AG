@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { BadgeCheck, ChevronDown, ChevronLeft, ChevronRight, Minus, Plus, Repeat, ShoppingBag, Truck } from 'lucide-react';
+import { Award, BadgeCheck, Building2, Clock, FileText, Ruler, X, ChevronDown, ChevronLeft, ChevronRight, Minus, Plus, Repeat, ShoppingBag, Truck } from 'lucide-react';
 import { DEMO_PRODUCTS, getProduct, totalStock } from '@/data/demoCatalog';
 import { cn } from '@/lib/utils';
-import { useStudio } from '@/store/useStudio';
+import { useSession, useStudio } from '@/store/useStudio';
 import type { DemoProduct, InfoBlock } from '@/types/project';
 import { ProductArt } from '../Art';
 import { Carousel, Container, DemoTag, ProductCard, SimButton, Stars } from '../Common';
 import { Annotated, SimPortal, useSim } from '../SimContext';
 import { kitsFor } from './kits';
+
+const DELIVERY: Record<string, [number, number]> = { Bogotá: [1, 2], Medellín: [2, 3], Cali: [2, 3], Barranquilla: [3, 5], 'Otra ciudad': [4, 7] };
 
 const INFO_LABEL: Record<InfoBlock, string> = {
   description: 'Descripción',
@@ -126,6 +128,16 @@ export function ProductPage() {
   const [showSticky, setShowSticky] = useState(false);
   const buyRef = useRef<HTMLDivElement>(null);
   const p = cfg.product;
+  const f = cfg.features ?? {};
+  const session = useSession();
+  const markViewed = useStudio((s) => s.markViewed);
+  const b2b = !!f['b2b-price-lists'] && !!session.b2bMode;
+  const minQty = b2b && f['b2b-min-order'] ? Number(f['b2b-min-order'].params.min) || 1 : 1;
+  const [sizeGuide, setSizeGuide] = useState(false);
+  const [quote, setQuote] = useState<'closed' | 'open' | 'sent'>('closed');
+  const [city, setCity] = useState('Bogotá');
+  useEffect(() => { markViewed(product.id); }, [product.id, markViewed]);
+  useEffect(() => { if (qty < minQty) setQty(minQty); }, [minQty, qty]);
 
   useEffect(() => {
     setVariantId(firstAvail.id);
@@ -144,7 +156,9 @@ export function ProductPage() {
   const variant = product.presentations.find((v) => v.id === variantId) ?? firstAvail;
   const subEligible = cfg.subscriptions.enabled && (cfg.subscriptions.scope === 'all' || cfg.subscriptions.productIds.includes(product.id));
   const isSub = subEligible && purchase === 'subscription';
-  const unit = isSub ? Math.round(variant.price * (1 - cfg.subscriptions.discountPct / 100)) : variant.price;
+  const listPrice = b2b ? Math.round(variant.price * 0.8) : variant.price;
+  const unit = isSub ? Math.round(listPrice * (1 - cfg.subscriptions.discountPct / 100)) : listPrice;
+  const points = f['loyalty-points'] ? Math.floor((unit * qty) / 1000) * (Number(f['loyalty-points'].params.rate) || 1) : 0;
   const out = variant.stock === 0;
   const blocks = p.infoBlocks;
   const add = () => addToCart({ productId: product.id, variantId: variant.id, qty, purchase: isSub ? 'subscription' : 'once', frequency: isSub ? frequency : undefined });
@@ -153,14 +167,18 @@ export function ProductPage() {
     <div className="flex items-baseline gap-3" data-testid="pdp-price">
       <span className="font-sim-heading text-2xl font-extrabold">{money(unit)}</span>
       {(variant.compareAt || isSub) && <span className="text-base text-slate-400 line-through">{money(variant.compareAt ?? variant.price)}</span>}
-      {variant.compareAt && !isSub && <span className="rounded-full bg-accent px-2 py-0.5 text-xs font-bold text-on-accent">-{Math.round((1 - variant.price / variant.compareAt) * 100)}%</span>}
+      {variant.compareAt && !isSub && !b2b && <span className="rounded-full bg-accent px-2 py-0.5 text-xs font-bold text-on-accent">-{Math.round((1 - variant.price / variant.compareAt) * 100)}%</span>}
+      {b2b && <span className="inline-flex items-center gap-1 rounded-full bg-slate-900 px-2 py-0.5 text-xs font-bold text-white" data-testid="b2b-price"><Building2 size={12} /> Precio distribuidor (ejemplo)</span>}
     </div>
   );
 
   const variantPicker = (
     <Annotated id="variants">
       <div className="flex flex-col gap-2">
-        <span className="text-sm font-semibold">Presentación: <span className="font-normal text-slate-600" data-testid="selected-variant">{variant.label}</span></span>
+        <span className="flex items-center justify-between gap-2 text-sm font-semibold">
+          <span>Presentación: <span className="font-normal text-slate-600" data-testid="selected-variant">{variant.label}</span></span>
+          {f['size-guide'] && <button type="button" onClick={() => setSizeGuide(true)} className="inline-flex items-center gap-1 text-xs font-semibold text-brand underline" data-testid="size-guide-link"><Ruler size={13} /> Guía de tallas</button>}
+        </span>
         {p.variantStyle === 'select' ? (
           <select aria-label="Presentación" value={variant.id} onChange={(e) => setVariantId(e.target.value)} className="h-11 rounded-sim border border-slate-300 bg-white px-3 text-sm">
             {product.presentations.map((v) => <option key={v.id} value={v.id} disabled={v.stock === 0}>{v.label}{v.stock === 0 ? ' — agotado' : ''}</option>)}
@@ -229,10 +247,20 @@ export function ProductPage() {
               <button type="button" aria-label="Aumentar cantidad" onClick={() => setQty(Math.min(variant.stock || 1, qty + 1))} className="grid h-full w-10 place-items-center"><Plus size={16} /></button>
             </div>
           )}
-          <SimButton className="h-12 flex-1" disabled={out} onClick={add} ariaLabel="Agregar al carrito">
+          <SimButton className="h-12 flex-1" disabled={out || qty < minQty} onClick={add} ariaLabel="Agregar al carrito">
             <ShoppingBag size={18} /> {out ? 'Agotado' : isSub ? 'Suscribirme' : 'Agregar al carrito'}
           </SimButton>
         </div>
+        {minQty > 1 && <p className="text-xs text-slate-600" data-testid="min-qty">Pedido mayorista mínimo: {minQty} unidades (ejemplo).</p>}
+        {f['b2b-quote-request'] && <SimButton variant="outline" className="h-11" onClick={() => setQuote('open')}><FileText size={16} /> Solicitar cotización</SimButton>}
+        {points > 0 && <p className="flex items-center gap-1.5 text-xs font-medium text-brand" data-testid="loyalty-points"><Award size={14} /> Ganas {points} puntos con esta compra (programa de ejemplo)</p>}
+        {f['delivery-estimate'] && (
+          <p className="flex flex-wrap items-center gap-1.5 text-xs text-slate-600" data-testid="delivery-estimate">
+            <Clock size={14} className="text-brand" /> Llega a
+            <select aria-label="Ciudad de entrega" value={city} onChange={(e) => setCity(e.target.value)} className="rounded border border-slate-300 bg-white px-1 py-0.5 text-xs">{Object.keys(DELIVERY).map((c) => <option key={c}>{c}</option>)}</select>
+            entre <b>{DELIVERY[city][0]}</b> y <b>{DELIVERY[city][1]}</b> días hábiles (estimado de ejemplo)
+          </p>
+        )}
         {out && cfg.leads.forms.includes('backInStock') && <BackInStock />}
       </div>
     </Annotated>
@@ -251,7 +279,7 @@ export function ProductPage() {
       {beforeBuy.includes('stock') && p.showStock && (
         <p className={cn('flex items-center gap-2 text-sm font-medium', out ? 'text-rose-600' : variant.stock < 10 ? 'text-amber-700' : 'text-emerald-700')} data-testid="stock">
           <span className={cn('h-2 w-2 rounded-full', out ? 'bg-rose-500' : variant.stock < 10 ? 'bg-amber-500' : 'bg-emerald-500')} />
-          {out ? 'Agotado' : variant.stock < 10 ? `Últimas ${variant.stock} unidades` : 'Disponible'} <span className="text-xs font-normal text-slate-400">(inventario demo)</span>
+          {out ? 'Agotado' : f['low-stock-urgency'] && variant.stock < 10 ? `Últimas ${variant.stock} unidades` : 'Disponible'} <span className="text-xs font-normal text-slate-400">(inventario demo)</span>
         </p>
       )}
       {purchaseOptions}
@@ -338,9 +366,49 @@ export function ProductPage() {
             </section>
           </Annotated>
         )}
+        {f['recently-viewed'] && (
+          <Annotated id="recentlyViewed" className="mt-12">
+            <section aria-label="Vistos recientemente" data-testid="recently-viewed">
+              <h2 className="mb-5 font-sim-heading text-xl font-extrabold">Vistos recientemente</h2>
+              {(session.viewed ?? []).filter((id) => id !== product.id).length === 0 ? (
+                <p className="text-sm text-slate-500">Navega por otros productos y aparecerán aquí.</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-3 @3xl:grid-cols-4">{(session.viewed ?? []).filter((id) => id !== product.id).slice(0, 4).map((id) => getProduct(id)).filter(Boolean).map((x) => <ProductCard key={x!.id} product={x!} />)}</div>
+              )}
+            </section>
+          </Annotated>
+        )}
         <div className="mt-8"><DemoTag /> <span className="text-[11px] text-slate-400">Precio, inventario e información son de demostración.</span></div>
       </Container>
 
+      {sizeGuide && (
+        <SimPortal>
+          <div className="absolute inset-0 z-50 grid place-items-center bg-black/45 p-4" role="dialog" aria-modal="true" aria-label="Guía de tallas">
+            <div className="animate-fade-in w-full max-w-md rounded-sim-lg bg-white p-5 shadow-2xl" data-testid="size-guide">
+              <div className="mb-3 flex items-center justify-between"><p className="font-sim-heading text-lg font-bold">Guía de tallas</p><button type="button" aria-label="Cerrar guía" onClick={() => setSizeGuide(false)}><X size={20} /></button></div>
+              <table className="w-full text-sm"><thead><tr className="border-b-2 border-slate-900 text-left"><th className="py-1">Talla</th><th>Pecho (cm)</th><th>Cintura (cm)</th></tr></thead><tbody>{[['S', '86-91', '71-76'], ['M', '91-97', '76-81'], ['L', '97-104', '81-89']].map((r) => <tr key={r[0]} className="border-b border-slate-100">{r.map((c) => <td key={c} className="py-1.5">{c}</td>)}</tr>)}</tbody></table>
+              <p className="mt-3 text-[11px] text-slate-500">Medidas de ejemplo: el cliente entrega su tabla por tipo de producto.</p>
+            </div>
+          </div>
+        </SimPortal>
+      )}
+      {quote !== 'closed' && (
+        <SimPortal>
+          <div className="absolute inset-0 z-50 grid place-items-center bg-black/45 p-4" role="dialog" aria-modal="true" aria-label="Solicitar cotización">
+            <div className="animate-fade-in w-full max-w-md rounded-sim-lg bg-white p-5 shadow-2xl" data-testid="quote-form">
+              <div className="mb-3 flex items-center justify-between"><p className="font-sim-heading text-lg font-bold">Solicitar cotización</p><button type="button" aria-label="Cerrar cotización" onClick={() => setQuote('closed')}><X size={20} /></button></div>
+              {quote === 'sent' ? <p role="status" className="rounded-sim bg-emerald-50 p-3 text-sm text-emerald-800">Simulación: la solicitud llegaría al equipo comercial. No se envió ningún dato.</p> : (
+                <form className="flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); setQuote('sent'); }}>
+                  <p className="text-xs text-slate-500">{product.name} · {variant.label}</p>
+                  <input required aria-label="Empresa" placeholder="Empresa" className="h-10 rounded-sim border border-slate-300 px-3 text-sm" />
+                  <input required type="number" min={1} aria-label="Unidades" placeholder="Unidades" className="h-10 rounded-sim border border-slate-300 px-3 text-sm" />
+                  <SimButton type="submit">Enviar solicitud</SimButton>
+                </form>
+              )}
+            </div>
+          </div>
+        </SimPortal>
+      )}
       {showSticky && (
         <SimPortal>
           <div className="animate-fade-in absolute inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-[0_-8px_24px_rgba(0,0,0,0.08)] backdrop-blur" data-testid="sticky-buy">

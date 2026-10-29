@@ -1,17 +1,20 @@
 import { AlertTriangle, CheckSquare, Link2, Wrench, X } from 'lucide-react';
 import { getAnnotation } from '@/config/annotations';
-import { requirements } from '@/engine/pmo';
-import { useStudio } from '@/store/useStudio';
+import { getTopping } from '@/config/discovery/toppings';
+import { requirements } from '@/engine/deliverables';
+import { useProject, useStudio } from '@/store/useStudio';
 import type { ProjectConfig } from '@/types/project';
-import { ScopeBadge, TechBadge } from '../ui';
+import { ScopeBadge, TechBadge, ToppingStatusBadge } from '../ui';
 
-export function AnnotationPanel({ project }: { project: ProjectConfig }) {
+export function AnnotationPanel({ cfg: project }: { cfg: ProjectConfig }) {
   const selected = useStudio((s) => s.ui.selectedAnnotation);
   const setUi = useStudio((s) => s.setUi);
-  if (!selected) return null;
-  const [key, reqId] = selected.split('|');
+  const discovery = useProject();
+  if (!selected || !discovery) return null;
+  const [key, toppingId] = selected.split('|');
   const spec = getAnnotation(key, project);
-  const req = requirements(project).find((r) => (reqId ? r.id === reqId : false)) ?? requirements(project).find((r) => r.key === key);
+  const reqs = requirements(discovery);
+  const req = reqs.find((r) => r.toppingId === toppingId) ?? reqs.find((r) => getTopping(r.toppingId)?.annotation === key);
   if (!spec) return null;
   const themePending = spec.classes.includes('theme') && !project.meta.themeName;
   return (
@@ -25,7 +28,8 @@ export function AnnotationPanel({ project }: { project: ProjectConfig }) {
       </div>
       <div className="thin-scroll flex-1 space-y-5 overflow-y-auto px-5 py-4 text-sm">
         <div className="flex flex-wrap gap-1.5">{spec.classes.map((c) => <TechBadge key={c} cls={c} pending={themePending} />)}</div>
-        {req && <div><ScopeBadge scope={req.scope} /></div>}
+        {req && <div className="flex flex-wrap items-center gap-1.5"><ToppingStatusBadge status={req.status} /><ScopeBadge scope={req.scope} /><span className="text-[11px] text-slate-500">Topping: {getTopping(req.toppingId)?.name} · {req.origin}</span></div>}
+        {!req && <p className="text-[11px] text-slate-500">Componente base del sitio (configurado por las respuestas).</p>}
         {themePending && <p className="rounded-lg bg-violet-50 p-3 text-xs text-violet-800">Tema Shopify no definido: la compatibilidad de los elementos dependientes del tema está <b>pendiente de validación</b>.</p>}
         <Block title="Funcionalidad esperada"><p className="text-slate-700">{spec.functionality}</p></Block>
         <Block title="Implementación sugerida" icon={<Wrench size={14} />}><p className="text-slate-700">{spec.implementation}</p></Block>

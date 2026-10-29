@@ -185,6 +185,10 @@ export function AccountPage({ title }: { title: string }) {
   const session = useSession();
   const update = useStudio((s) => s.updateSubscription);
   const actions = cfg.subscriptions.customerActions;
+  const toggleWishlist = useStudio((s) => s.toggleWishlist);
+  const wish = (session.wishlist ?? []).map(getProduct).filter((x): x is NonNullable<typeof x> => !!x);
+  const rate = Number(cfg.features?.['loyalty-points']?.params.rate) || 1;
+  const points = session.orders.reduce((sum, o) => sum + Math.floor(o.total / 1000) * rate, 0);
   return (
     <Annotated id="account">
       <PageHead title={title} subtitle="Cuenta de cliente simulada." />
@@ -195,6 +199,22 @@ export function AccountPage({ title }: { title: string }) {
             <ul className="divide-y divide-slate-100 rounded-sim-lg border border-slate-200">{session.orders.map((o) => <li key={o.number} className="flex justify-between p-3 text-sm"><span className="font-semibold">{o.number}</span><span>{money(o.total)}</span></li>)}</ul>
           )}
         </section>
+        {cfg.features?.wishlist && (
+          <Annotated id="wishlist" as="section">
+            <h2 className="mb-3 font-sim-heading text-lg font-bold">Lista de deseos ({wish.length})</h2>
+            {wish.length === 0 ? <p className="text-sm text-slate-500">Toca el corazón en un producto para guardarlo aquí.</p> : (
+              <ul className="divide-y divide-slate-100 rounded-sim-lg border border-slate-200" data-testid="wishlist-items">
+                {wish.map((p) => <li key={p.id} className="flex items-center gap-3 p-3 text-sm"><div className="h-12 w-12 overflow-hidden rounded bg-slate-50"><ProductArt product={p} className="h-full w-full" /></div><span className="flex-1 font-semibold">{p.name}</span><button type="button" onClick={() => toggleWishlist(p.id)} className="text-xs text-slate-500 underline">Quitar</button></li>)}
+              </ul>
+            )}
+          </Annotated>
+        )}
+        {cfg.features?.['loyalty-points'] && (
+          <Annotated id="loyalty" as="section">
+            <h2 className="mb-3 font-sim-heading text-lg font-bold">Mis puntos</h2>
+            <p className="rounded-sim-lg bg-brand-soft p-4 text-sm" data-testid="points-balance"><b className="font-sim-heading text-2xl">{points}</b> puntos acumulados con tus pedidos de demostración.</p>
+          </Annotated>
+        )}
         <Annotated id="subscriptions" as="section">
           <h2 className="mb-3 font-sim-heading text-lg font-bold">Suscripciones</h2>
           {!cfg.subscriptions.enabled ? <p className="text-sm text-slate-500">Suscripciones no habilitadas en el Discovery.</p> : session.subscriptions.length === 0 ? <p className="text-sm text-slate-500">Compra un producto con suscripción para gestionarla aquí.</p> : (

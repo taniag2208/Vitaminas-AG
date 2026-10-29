@@ -1,12 +1,12 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import { createProject, type TemplateId } from '@/config/templates';
-import type { PhaseId } from '@/config/questions';
+import { ACTIVATED_BY, getQuestion } from '@/config/discovery';
 import { DEMO_DISCOUNT_CODES } from '@/data/demoCatalog';
+import { migrateV1, newProject, toV2 } from '@/engine/migrate';
 import { localProjectStorage, STORAGE_KEY } from '@/services/storage';
-import { setPath, uid } from '@/lib/utils';
-import type { DecisionMeta, ProjectConfig } from '@/types/project';
-import { SCHEMA_VERSION } from '@/types/project';
+import { uid } from '@/lib/utils';
+import type { AnswerRecord, AnswerStatus, DiscoveryProject, StageId, TechValidation, ToppingRecord } from '@/types/discovery';
+import type { ProjectConfig, SectionProps } from '@/types/project';
 
 export interface SimRoute {
   page: string;
@@ -39,6 +39,7 @@ export interface DemoSubscription {
   skipped: number;
 }
 
+/** Estado de la simulación: separado de respuestas y configuración. */
 export interface SimSession {
   cart: CartLine[];
   discountCode: string | null;
@@ -46,13 +47,18 @@ export interface SimSession {
   orders: DemoOrder[];
   subscriptions: DemoSubscription[];
   popupDismissed: boolean;
+  wishlist?: string[];
+  viewed?: string[];
+  b2bMode?: boolean;
 }
 
 export type Device = 'desktop' | 'mobile';
-export type Workspace = 'studio' | 'pmo';
+export type Workspace = 'discovery' | 'toppings' | 'deliverables';
 
 interface UiState {
-  phase: PhaseId;
+  stage: StageId;
+  /** Pregunta en foco por etapa */
+  currentQ: Partial<Record<StageId, string>>;
   route: SimRoute;
   device: Device;
   annotations: boolean;
@@ -69,29 +75,39 @@ export interface StudioBrand {
 interface StudioState {
   studioBrand: StudioBrand;
   setStudioBrand: (b: Partial<StudioBrand>) => void;
-  projects: Record<string, ProjectConfig>;
+  projects: Record<string, DiscoveryProject>;
   activeId: string | null;
   ui: UiState;
   sessions: Record<string, SimSession>;
 
   // proyectos
-  createProject: (opts: { name: string; client: string; template: TemplateId }) => string;
+  createProject: (opts: { name: string; client: string }) => string;
   duplicateProject: (id: string) => string;
   deleteProject: (id: string) => void;
   openProject: (id: string | null) => void;
-  importProject: (cfg: ProjectConfig) => string;
+  importProject: (data: unknown) => string | null;
 
-  // configuración (fuente única de verdad)
-  update: (path: string, value: unknown, questionId?: string) => void;
-  mutate: (fn: (c: ProjectConfig) => ProjectConfig, questionId?: string) => void;
-  setDecision: (questionId: string, patch: Partial<DecisionMeta>) => void;
-  setAnswered: (questionId: string, value: boolean) => void;
+  // respuestas del Discovery
+  answer: (qid: string, value: unknown) => void;
+  setAnswerStatus: (qid: string, status: AnswerStatus) => void;
+  setAnswerNote: (qid: string, notes: string) => void;
+  clearAnswer: (qid: string) => void;
+
+  // decisiones sobre toppings
+  setTopping: (id: string, patch: Partial<ToppingRecord>) => void;
+  addTopping: (id: string) => void;
+  removeTopping: (id: string) => void;
+
+  // personalización de datos ficticios y validaciones técnicas
+  setSectionContent: (toppingId: string, patch: Partial<SectionProps>) => void;
+  setValidation: (key: string, status: TechValidation, note?: string) => void;
 
   // ui
   setUi: (patch: Partial<UiState>) => void;
+  focusQuestion: (stage: StageId, qid: string) => void;
   navigate: (page: string, params?: Record<string, string>) => void;
 
-  // simulación (no forma parte de las decisiones)
+  // simulación
   addToCart: (line: Omit<CartLine, 'key'>) => void;
   setQty: (key: string, qty: number) => void;
   removeLine: (key: string) => void;
@@ -100,17 +116,21 @@ interface StudioState {
   placeOrder: (total: number) => DemoOrder;
   updateSubscription: (id: string, patch: Partial<DemoSubscription>) => void;
   dismissPopup: () => void;
+  toggleWishlist: (productId: string) => void;
+  markViewed: (productId: string) => void;
+  setB2bMode: (on: boolean) => void;
   resetSession: () => void;
 }
 
-const emptySession = (): SimSession => ({ cart: [], discountCode: null, cartOpen: false, orders: [], subscriptions: [], popupDismissed: false });
-
-const touch = (c: ProjectConfig): ProjectConfig => ({ ...c, meta: { ...c.meta, updatedAt: new Date().toISOString() } });
+const emptySession = (): SimSession => ({ cart: [], discountCode: null, cartOpen: false, orders: [], subscriptions: [], popupDismissed: false, wishlist: [], viewed: [], b2bMode: false });
+const now = () => new Date().toISOString();
+const touch = (p: DiscoveryProject): DiscoveryProject => ({ ...p, meta: { ...p.meta, updatedAt: now() } });
+const blankAnswer = (): AnswerRecord => ({ status: 'pending', notes: '', updatedAt: '' });
 
 export const useStudio = create<StudioState>()(
   persist(
     (set, get) => {
-      const withActive = (fn: (c: ProjectConfig) => ProjectConfig) => {
+      const withActive = (fn: (p: DiscoveryProject) => DiscoveryProject) => {
         const { activeId, projects } = get();
         if (!activeId || !projects[activeId]) return;
         set({ projects: { ...projects, [activeId]: touch(fn(projects[activeId])) } });
@@ -118,9 +138,12 @@ export const useStudio = create<StudioState>()(
       const withSession = (fn: (s: SimSession) => SimSession) => {
         const { activeId, sessions } = get();
         if (!activeId) return;
-        set({ sessions: { ...sessions, [activeId]: fn(sessions[activeId] ?? emptySession()) } });
+        set({ sessions: { ...sessions, [activeId]: fn({ ...emptySession(), ...(sessions[activeId] ?? {}) }) } });
       };
-      const markAnswered = (c: ProjectConfig, qid?: string) => (qid ? { ...c, answered: { ...c.answered, [qid]: true } } : c);
+      const patchAnswer = (p: DiscoveryProject, qid: string, patch: Partial<AnswerRecord>): DiscoveryProject => ({
+        ...p,
+        answers: { ...p.answers, [qid]: { ...(p.answers[qid] ?? blankAnswer()), ...patch, updatedAt: now() } },
+      });
 
       return {
         studioBrand: { name: 'Tita Media', accent: '#5b3df5' },
@@ -128,18 +151,17 @@ export const useStudio = create<StudioState>()(
         projects: {},
         activeId: null,
         sessions: {},
-        ui: { phase: 'identity', route: { page: 'home' }, device: 'desktop', annotations: false, workspace: 'studio', fullscreen: false, selectedAnnotation: null },
+        ui: { stage: 'context', currentQ: {}, route: { page: 'home' }, device: 'desktop', annotations: false, workspace: 'discovery', fullscreen: false, selectedAnnotation: null },
 
         createProject: (opts) => {
-          const p = createProject(opts);
-          set((s) => ({ projects: { ...s.projects, [p.meta.id]: p }, activeId: p.meta.id, ui: { ...s.ui, phase: 'identity', route: { page: 'home' }, workspace: 'studio' } }));
+          const p = newProject(opts);
+          set((s) => ({ projects: { ...s.projects, [p.meta.id]: p }, activeId: p.meta.id, ui: { ...s.ui, stage: 'context', currentQ: {}, route: { page: 'home' }, workspace: 'discovery' } }));
           return p.meta.id;
         },
         duplicateProject: (id) => {
           const src = get().projects[id];
-          const copy: ProjectConfig = structuredClone(src);
-          const now = new Date().toISOString();
-          copy.meta = { ...copy.meta, id: uid(), name: `${src.meta.name} (copia)`, createdAt: now, updatedAt: now };
+          const copy: DiscoveryProject = structuredClone(src);
+          copy.meta = { ...copy.meta, id: uid(), name: `${src.meta.name} (copia)`, createdAt: now(), updatedAt: now() };
           set((s) => ({ projects: { ...s.projects, [copy.meta.id]: copy } }));
           return copy.meta.id;
         },
@@ -151,26 +173,57 @@ export const useStudio = create<StudioState>()(
             delete sessions[id];
             return { projects, sessions, activeId: s.activeId === id ? null : s.activeId };
           }),
-        openProject: (id) => set((s) => ({ activeId: id, ui: { ...s.ui, route: { page: 'home' }, workspace: 'studio', fullscreen: false, selectedAnnotation: null } })),
-        importProject: (cfg) => {
-          const copy = structuredClone(cfg);
-          copy.meta = { ...copy.meta, id: uid(), updatedAt: new Date().toISOString() };
+        openProject: (id) => set((s) => ({ activeId: id, ui: { ...s.ui, route: { page: 'home' }, workspace: 'discovery', fullscreen: false, selectedAnnotation: null } })),
+        importProject: (data) => {
+          const p = toV2(data);
+          if (!p) return null;
+          const copy = structuredClone(p);
+          copy.meta = { ...copy.meta, id: uid(), updatedAt: now() };
           set((s) => ({ projects: { ...s.projects, [copy.meta.id]: copy } }));
           return copy.meta.id;
         },
 
-        update: (path, value, questionId) => withActive((c) => markAnswered(setPath(c, path, value), questionId)),
-        mutate: (fn, questionId) => withActive((c) => markAnswered(fn(structuredClone(c)), questionId)),
-        setDecision: (qid, patch) =>
-          withActive((c) => {
-            const prev = c.decisions[qid] ?? { status: 'pending', owner: '', notes: '', updatedAt: '' };
-            const next = { ...prev, ...patch, updatedAt: new Date().toISOString() };
-            const answered = patch.status && patch.status !== 'pending' ? { ...c.answered, [qid]: true } : c.answered;
-            return { ...c, answered, decisions: { ...c.decisions, [qid]: next } };
+        answer: (qid, value) =>
+          withActive((p) => {
+            const prev = p.answers[qid]?.status;
+            return patchAnswer(p, qid, { value, status: prev === 'to_validate' ? 'to_validate' : 'answered' });
           }),
-        setAnswered: (qid, value) => withActive((c) => ({ ...c, answered: { ...c.answered, [qid]: value } })),
+        setAnswerStatus: (qid, status) => withActive((p) => patchAnswer(p, qid, { status })),
+        setAnswerNote: (qid, notes) => withActive((p) => patchAnswer(p, qid, { notes })),
+        clearAnswer: (qid) => withActive((p) => patchAnswer(p, qid, { value: undefined, status: 'pending' })),
+
+        setTopping: (id, patch) => withActive((p) => ({ ...p, toppings: { ...p.toppings, [id]: { ...(p.toppings[id] ?? {}), ...patch } } })),
+        addTopping: (id) =>
+          withActive((p) => {
+            const r = p.toppings[id] ?? {};
+            return { ...p, toppings: { ...p.toppings, [id]: { ...r, manual: true, dismissed: false, approval: r.approval === 'discarded' ? 'requested' : r.approval ?? 'requested' } } };
+          }),
+        removeTopping: (id) =>
+          withActive((p) => {
+            let next = p;
+            let tied = false;
+            for (const qid of ACTIVATED_BY[id] ?? []) {
+              const q = getQuestion(qid);
+              const a = p.answers[qid];
+              if (!q || !a || a.value === undefined) continue;
+              const values = (q.options ?? []).filter((o) => o.toppings?.includes(id)).map((o) => o.value);
+              if (q.type === 'multi' && Array.isArray(a.value)) {
+                next = patchAnswer(next, qid, { value: (a.value as string[]).filter((v) => !values.includes(v)) });
+              } else if (q.type === 'boolean' && a.value === true) {
+                next = patchAnswer(next, qid, { value: false });
+              } else if (values.includes(String(a.value))) {
+                tied = true;
+              }
+            }
+            const r = next.toppings[id] ?? {};
+            return { ...next, toppings: { ...next.toppings, [id]: { ...r, manual: false, ...(tied ? { approval: 'discarded' as const } : {}) } } };
+          }),
+
+        setSectionContent: (tid, patch) => withActive((p) => ({ ...p, content: { ...p.content, sections: { ...p.content.sections, [tid]: { ...(p.content.sections[tid] ?? {}), ...patch } } } })),
+        setValidation: (key, status, note) => withActive((p) => ({ ...p, validations: { ...p.validations, [key]: { status, note: note ?? p.validations[key]?.note ?? '' } } })),
 
         setUi: (patch) => set((s) => ({ ui: { ...s.ui, ...patch } })),
+        focusQuestion: (stage, qid) => set((s) => ({ ui: { ...s.ui, stage, currentQ: { ...s.ui.currentQ, [stage]: qid } } })),
         navigate: (page, params) => set((s) => ({ ui: { ...s.ui, route: { page, params } } })),
 
         addToCart: (line) =>
@@ -188,27 +241,42 @@ export const useStudio = create<StudioState>()(
         },
         setCartOpen: (open) => withSession((s) => ({ ...s, cartOpen: open })),
         placeOrder: (total) => {
-          const s = get().sessions[get().activeId!] ?? emptySession();
-          const order: DemoOrder = { number: `DEMO-${1001 + s.orders.length}`, total, lines: s.cart, createdAt: new Date().toISOString() };
+          const s = { ...emptySession(), ...(get().sessions[get().activeId!] ?? {}) };
+          const order: DemoOrder = { number: `DEMO-${1001 + s.orders.length}`, total, lines: s.cart, createdAt: now() };
           const subs: DemoSubscription[] = s.cart.filter((l) => l.purchase === 'subscription').map((l) => ({ id: uid(), productId: l.productId, variantId: l.variantId, frequency: l.frequency ?? '30 días', status: 'active', skipped: 0 }));
           withSession((x) => ({ ...x, cart: [], discountCode: null, cartOpen: false, orders: [order, ...x.orders], subscriptions: [...subs, ...x.subscriptions] }));
           return order;
         },
         updateSubscription: (id, patch) => withSession((s) => ({ ...s, subscriptions: s.subscriptions.map((x) => (x.id === id ? { ...x, ...patch } : x)) })),
         dismissPopup: () => withSession((s) => ({ ...s, popupDismissed: true })),
+        toggleWishlist: (pid) => withSession((s) => { const w = s.wishlist ?? []; return { ...s, wishlist: w.includes(pid) ? w.filter((x) => x !== pid) : [...w, pid] }; }),
+        markViewed: (pid) => withSession((s) => ({ ...s, viewed: [pid, ...(s.viewed ?? []).filter((x) => x !== pid)].slice(0, 8) })),
+        setB2bMode: (on) => withSession((s) => ({ ...s, b2bMode: on })),
         resetSession: () => withSession(() => emptySession()),
       };
     },
     {
       name: STORAGE_KEY,
-      version: SCHEMA_VERSION,
+      version: 2,
       storage: createJSONStorage(() => localProjectStorage),
       partialize: (s) => ({ studioBrand: s.studioBrand, projects: s.projects, activeId: s.activeId, sessions: s.sessions, ui: { ...s.ui, fullscreen: false, selectedAnnotation: null } }),
-      migrate: (persisted) => persisted as StudioState,
+      migrate: (persisted, version) => {
+        const st = persisted as { projects?: Record<string, unknown>; ui?: Record<string, unknown> } & Record<string, unknown>;
+        if (version < 2) {
+          const projects: Record<string, DiscoveryProject> = {};
+          for (const [id, cfg] of Object.entries(st.projects ?? {})) {
+            const p = migrateV1(cfg as ProjectConfig);
+            p.meta.id = id;
+            projects[id] = p;
+          }
+          return { ...st, projects, ui: { ...(st.ui ?? {}), stage: 'context', currentQ: {}, workspace: 'discovery' } } as unknown as StudioState;
+        }
+        return st as unknown as StudioState;
+      },
     },
   ),
 );
 
 export const useProject = () => useStudio((s) => (s.activeId ? s.projects[s.activeId] : undefined));
-export const useSession = () => useStudio((s) => (s.activeId ? s.sessions[s.activeId] : undefined) ?? EMPTY_SESSION);
 const EMPTY_SESSION = emptySession();
+export const useSession = () => useStudio((s) => (s.activeId ? s.sessions[s.activeId] : undefined) ?? EMPTY_SESSION);

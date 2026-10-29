@@ -1,0 +1,523 @@
+import { DEMO_CATEGORIES } from '@/data/demoCatalog';
+import { makePage } from '@/config/templates';
+import type { DOption, DQuestion } from '@/types/discovery';
+import type { BusinessContext, HeaderElement, PageDef, ProjectConfig, ReferenceItem } from '@/types/project';
+
+/** Etapas 1–3: Contexto, Marca, Home y navegación. */
+
+export const yesNo = (yes?: string[], labels: [string, string] = ['Sí', 'No']): DOption[] => [
+  { value: 'true', label: labels[0], toppings: yes },
+  { value: 'false', label: labels[1] },
+];
+
+const ctx = (c: ProjectConfig): BusinessContext => (c.context ??= { vertical: 'supplements', b2c: true, b2b: false, tone: 'close', personality: 'natural' });
+
+export const PERSONALITY: Record<string, { primary: string; secondary: string; accent: string; heading: string; body: string; radius: 'none' | 'soft' | 'round' }> = {
+  clinical: { primary: '#1d5c8c', secondary: '#eef4f8', accent: '#2bb3a3', heading: 'Manrope', body: 'Inter', radius: 'soft' },
+  natural: { primary: '#1f6f5c', secondary: '#f3efe6', accent: '#e9822e', heading: 'Fraunces', body: 'DM Sans', radius: 'round' },
+  energetic: { primary: '#d63b26', secondary: '#fff4ef', accent: '#1d1d1f', heading: 'Outfit', body: 'Inter', radius: 'soft' },
+  premium: { primary: '#1c1c28', secondary: '#f5f2ec', accent: '#b08d57', heading: 'Playfair Display', body: 'Inter', radius: 'none' },
+  friendly: { primary: '#6d4ad8', secondary: '#f4f0ff', accent: '#f5a524', heading: 'Poppins', body: 'DM Sans', radius: 'round' },
+};
+
+const WELLNESS_PAGES: PageDef[] = (['home', 'catalog', 'brands', 'about', 'blog', 'contact', 'faq', 'policies'] as const).map((t) => makePage(t));
+
+export const CORE_QUESTIONS: DQuestion[] = [
+  /* ═════════════ 1. Contexto del negocio ═════════════ */
+  {
+    id: 'CTX-01', stage: 'context', category: 'Negocio', type: 'cards',
+    text: '¿Qué vende principalmente la tienda?',
+    context: 'Nos ayuda a recomendar funcionalidades que funcionan en tu industria.',
+    options: [
+      { value: 'supplements', label: 'Vitaminas y suplementos', description: 'Bienestar, nutrición, deporte' },
+      { value: 'beauty', label: 'Belleza y cuidado personal' },
+      { value: 'fashion', label: 'Moda y accesorios' },
+      { value: 'food', label: 'Alimentos y bebidas' },
+      { value: 'home', label: 'Hogar y decoración' },
+      { value: 'tech', label: 'Tecnología' },
+      { value: 'other', label: 'Otro' },
+    ],
+    effect: 'Activa recomendaciones de toppings para la industria (p. ej. tabla nutricional, guía de tallas).',
+    apply: (v, c) => { ctx(c).vertical = String(v); },
+    features: ['Recomendaciones por industria'],
+  },
+  {
+    id: 'CTX-02', stage: 'context', category: 'Negocio', type: 'multi',
+    text: '¿A quién le vende?',
+    context: 'B2C es consumidor final. B2B son empresas, distribuidores o profesionales que compran al por mayor.',
+    options: [{ value: 'b2c', label: 'Consumidor final (B2C)' }, { value: 'b2b', label: 'Empresas y distribuidores (B2B)', scope: 'validation' }],
+    effect: 'Si incluye B2B, se abren preguntas de precios por segmento, mínimos, cotizaciones y crédito.',
+    apply: (v, c) => { const l = (v as string[]) ?? []; ctx(c).b2c = l.includes('b2c'); ctx(c).b2b = l.includes('b2b'); },
+    features: ['Canal B2C', 'Canal B2B'],
+  },
+  {
+    id: 'CTX-15', stage: 'context', category: 'B2B', type: 'single', showIf: { q: 'CTX-02', includes: 'b2b' },
+    text: '¿Qué parte de las ventas en línea esperan que sea B2B?',
+    options: [{ value: 'low', label: 'Menos del 20%' }, { value: 'mid', label: 'Entre 20% y 50%' }, { value: 'high', label: 'Más del 50%' }],
+    effect: 'Define la prioridad de las funcionalidades B2B en el backlog.',
+  },
+  {
+    id: 'CTX-03', stage: 'context', category: 'Marca', type: 'text', placeholder: 'Ej. AG Vitaminas',
+    text: '¿Cómo se llamará la tienda?',
+    context: 'Es el nombre que verá el cliente en el encabezado, el título del sitio y los correos.',
+    effect: 'Actualiza el logotipo de texto, el footer y los textos que mencionan la marca.',
+    suggest: (p) => p.meta.client || p.meta.name,
+    apply: (v, c) => { const n = String(v || c.brand.storeName); c.brand.storeName = n; c.footer.legalText = `© ${new Date().getFullYear()} ${n}. Todos los derechos reservados.`; },
+    preview: { page: 'home', target: 'header' },
+    legacy: { ids: ['brand.storeName'], read: (v1) => v1.brand.storeName },
+  },
+  {
+    id: 'CTX-04', stage: 'context', category: 'Marca', type: 'cards',
+    text: '¿Venden una marca propia o varias marcas?',
+    options: [
+      { value: 'mono', label: 'Una marca propia', visual: 'mono' },
+      { value: 'multi', label: 'Varias marcas', description: 'Portafolio de marcas', visual: 'multi' },
+    ],
+    effect: 'Multimarca habilita navegación y filtro por marca y recomienda la franja de marcas.',
+    apply: (v, c) => { c.brand.identity = v === 'mono' ? 'mono' : 'multi'; },
+    legacy: { ids: ['brand.identity'], read: (v1) => v1.brand.identity },
+  },
+  {
+    id: 'CTX-05', stage: 'context', category: 'Objetivos', type: 'multi', maxSelect: 3,
+    text: '¿Cuáles son los tres objetivos más importantes de la tienda?',
+    context: 'Elige máximo tres. Guían qué priorizar cuando haya que recortar alcance.',
+    options: [
+      { value: 'sales', label: 'Vender más (ticket y conversión)' },
+      { value: 'acquisition', label: 'Captar clientes nuevos' },
+      { value: 'retention', label: 'Que los clientes vuelvan a comprar' },
+      { value: 'brand', label: 'Posicionar la marca' },
+      { value: 'efficiency', label: 'Reducir trabajo operativo' },
+      { value: 'b2b', label: 'Digitalizar la venta a empresas' },
+    ],
+    effect: 'Activa recomendaciones (p. ej. recompra → suscripciones, puntos y automatizaciones).',
+  },
+  {
+    id: 'CTX-06', stage: 'context', category: 'Situación actual', type: 'single',
+    text: '¿Hoy venden en línea?',
+    options: [{ value: 'no', label: 'No, es la primera tienda en línea' }, { value: 'other', label: 'Sí, en otra plataforma' }, { value: 'marketplace', label: 'Sí, en marketplaces' }, { value: 'shopify', label: 'Sí, ya en Shopify' }],
+    effect: 'Si ya venden, se documenta qué conservar y qué mejorar (posible migración).',
+  },
+  {
+    id: 'CTX-07', stage: 'context', category: 'Situación actual', type: 'textarea', showIf: { q: 'CTX-06', in: ['other', 'marketplace', 'shopify'] },
+    text: '¿Qué funciona bien hoy y qué les gustaría cambiar?',
+    placeholder: 'Ej. el checkout funciona bien; el catálogo es difícil de actualizar…',
+    effect: 'Queda en el resumen ejecutivo como insumo de la migración.',
+  },
+  {
+    id: 'CTX-08', stage: 'context', category: 'Catálogo', type: 'single',
+    text: '¿Cuántos productos (referencias) venderán aproximadamente?',
+    context: 'Cuenta cada presentación o talla como una referencia.',
+    options: [{ value: 'lt50', label: 'Menos de 50' }, { value: '50-200', label: 'Entre 50 y 200' }, { value: '200-1000', label: 'Entre 200 y 1.000' }, { value: 'gt1000', label: 'Más de 1.000' }],
+    effect: 'Con catálogos grandes se recomiendan filtros, búsqueda con sugerencias y megamenú.',
+  },
+  {
+    id: 'CTX-09', stage: 'context', category: 'Clientes', type: 'single',
+    text: '¿Desde dónde creen que comprarán sus clientes?',
+    options: [{ value: 'mostly_mobile', label: 'Sobre todo desde el celular' }, { value: 'balanced', label: 'Celular y computador por igual' }, { value: 'mostly_desktop', label: 'Sobre todo desde computador' }],
+    effect: 'Con tráfico móvil se recomiendan botón de compra fijo y WhatsApp.',
+  },
+  {
+    id: 'CTX-10', stage: 'context', category: 'Cobertura', type: 'single',
+    text: '¿Hasta dónde harán envíos?',
+    options: [{ value: 'city', label: 'Una ciudad' }, { value: 'national', label: 'Todo el país' }, { value: 'international', label: 'Varios países', scope: 'additional' }],
+    effect: 'Define reglas de envío y recomienda fecha estimada de entrega.',
+  },
+  {
+    id: 'CTX-11', stage: 'context', category: 'Cobertura', type: 'boolean',
+    text: '¿Tienen tiendas físicas?',
+    options: yesNo(),
+    effect: 'Si hay tiendas, se recomienda recogida en tienda y manejo de varias bodegas.',
+  },
+  {
+    id: 'CTX-12', stage: 'context', category: 'Proyecto', type: 'text', placeholder: 'Ej. marzo 2027',
+    text: '¿Para cuándo necesitan lanzar?',
+    effect: 'Queda en el resumen ejecutivo y orienta la priorización.',
+  },
+  {
+    id: 'CTX-13', stage: 'context', category: 'Proyecto', type: 'textarea',
+    text: '¿Quiénes toman las decisiones del proyecto?',
+    placeholder: 'Nombre, rol y qué decide cada persona',
+    effect: 'Se usa como responsables en la matriz y el checklist de validación.',
+  },
+
+  /* ═════════════ 2. Marca e identidad ═════════════ */
+  {
+    id: 'BRD-01', stage: 'brand', category: 'Identidad', type: 'single',
+    text: '¿Tienen manual de marca?',
+    options: [{ value: 'complete', label: 'Sí, completo' }, { value: 'partial', label: 'Parcial (logo y colores)' }, { value: 'none', label: 'No' }],
+    effect: 'Si no hay manual, las elecciones de esta etapa se vuelven la referencia visual.',
+  },
+  {
+    id: 'BRD-02', stage: 'brand', category: 'Identidad', type: 'logo',
+    text: '¿Tienen el logo en digital?',
+    context: 'Súbelo en PNG o SVG. Si no lo tienen, usamos el nombre como logotipo.',
+    effect: 'El logo aparece en el encabezado del simulador.',
+    apply: (v, c) => { c.brand.logoImage = typeof v === 'string' ? v : undefined; },
+    preview: { page: 'home', target: 'header' },
+    legacy: { ids: ['brand.logo'], read: (v1) => v1.brand.logoImage },
+  },
+  {
+    id: 'BRD-03', stage: 'brand', category: 'Estilo', type: 'cards',
+    text: '¿Qué sensación debe transmitir la tienda?',
+    context: 'Elegimos colores, tipografías y formas de partida. Luego puedes ajustarlos.',
+    options: [
+      { value: 'clinical', label: 'Confiable y experta', description: 'Limpia, clara, profesional' },
+      { value: 'natural', label: 'Natural y cercana', description: 'Orgánica, cálida' },
+      { value: 'energetic', label: 'Enérgica y deportiva', description: 'Contraste y movimiento' },
+      { value: 'premium', label: 'Premium y elegante', description: 'Sobria, sofisticada' },
+      { value: 'friendly', label: 'Alegre y amigable', description: 'Colorida, joven' },
+    ],
+    effect: 'Cambia de inmediato la paleta, las tipografías y el estilo de bordes del simulador.',
+    apply: (v, c) => {
+      const p = PERSONALITY[String(v)];
+      if (!p) return;
+      ctx(c).personality = String(v);
+      Object.assign(c.brand, { primary: p.primary, secondary: p.secondary, accent: p.accent, headingFont: p.heading, bodyFont: p.body, radius: p.radius });
+    },
+    preview: { page: 'home', target: 'hero' },
+  },
+  {
+    id: 'BRD-04', stage: 'brand', category: 'Estilo', type: 'colors',
+    text: '¿Cuáles son los colores de la marca?',
+    context: 'Primario: botones y enlaces. Secundario: fondos suaves. Acento: promociones y etiquetas.',
+    effect: 'Botones, fondos y etiquetas del simulador toman estos colores.',
+    suggest: (p) => { const per = PERSONALITY[String(p.answers['BRD-03']?.value ?? 'natural')] ?? PERSONALITY.natural; return { primary: per.primary, secondary: per.secondary, accent: per.accent }; },
+    apply: (v, c) => { const x = v as { primary: string; secondary: string; accent: string }; if (x) Object.assign(c.brand, x); },
+    preview: { page: 'home', target: 'hero' },
+    legacy: { ids: ['brand.colors'], read: (v1) => ({ primary: v1.brand.primary, secondary: v1.brand.secondary, accent: v1.brand.accent }) },
+  },
+  {
+    id: 'BRD-05', stage: 'brand', category: 'Estilo', type: 'fonts',
+    text: '¿Qué tipografías usarán?',
+    context: 'Una para títulos y otra para textos. Verifica que tengan licencia de uso web.',
+    effect: 'Títulos y textos del simulador cambian de tipografía.',
+    suggest: (p) => { const per = PERSONALITY[String(p.answers['BRD-03']?.value ?? 'natural')] ?? PERSONALITY.natural; return { heading: per.heading, body: per.body }; },
+    apply: (v, c) => { const x = v as { heading: string; body: string }; if (x) { c.brand.headingFont = x.heading; c.brand.bodyFont = x.body; } },
+    preview: { page: 'home', target: 'hero' },
+    legacy: { ids: ['brand.fonts'], read: (v1) => ({ heading: v1.brand.headingFont, body: v1.brand.bodyFont }) },
+  },
+  {
+    id: 'BRD-06', stage: 'brand', category: 'Estilo', type: 'cards',
+    text: '¿Prefieren formas rectas o redondeadas?',
+    options: [{ value: 'none', label: 'Rectas', visual: 'radius-none' }, { value: 'soft', label: 'Suaves', visual: 'radius-soft' }, { value: 'round', label: 'Redondeadas', visual: 'radius-round' }],
+    effect: 'Botones, tarjetas e imágenes cambian de forma.',
+    apply: (v, c) => { c.brand.radius = v as 'none'; },
+    preview: { page: 'catalog', target: 'productCard' },
+    legacy: { ids: ['brand.radius'], read: (v1) => v1.brand.radius },
+  },
+  {
+    id: 'BRD-07', stage: 'brand', category: 'Contenido', type: 'single',
+    text: '¿Qué tipo de fotografías tendrán?',
+    options: [{ value: 'packshot', label: 'Producto en fondo blanco' }, { value: 'lifestyle', label: 'Producto en uso (lifestyle)' }, { value: 'both', label: 'Ambas' }, { value: 'none', label: 'Aún no tenemos fotos', scope: 'tbd' }],
+    effect: 'Define la dependencia de producción fotográfica en el backlog.',
+  },
+  {
+    id: 'BRD-08', stage: 'brand', category: 'Contenido', type: 'cards',
+    text: '¿Cómo le habla la marca a sus clientes?',
+    context: 'El tono cambia los textos de ejemplo del simulador.',
+    options: [
+      { value: 'close', label: 'Cercano', description: '"Tu bienestar, todos los días"' },
+      { value: 'formal', label: 'Formal', description: '"Bienestar respaldado por marcas reconocidas"' },
+      { value: 'expert', label: 'Experto', description: '"Suplementación con información de experto"' },
+      { value: 'inspiring', label: 'Inspirador', description: '"Pequeños hábitos, grandes cambios"' },
+    ],
+    effect: 'El banner principal y los textos de ejemplo usan este tono.',
+    apply: (v, c) => { ctx(c).tone = v as BusinessContext['tone']; },
+    preview: { page: 'home', target: 'hero' },
+  },
+  {
+    id: 'BRD-09', stage: 'brand', category: 'Referencias', type: 'references',
+    text: '¿Qué tiendas les gustan como referencia?',
+    context: 'Agrega sitios o imágenes y anota qué les gusta de cada uno.',
+    effect: 'Las referencias quedan en el resumen ejecutivo.',
+    apply: (v, c) => { c.references = (v as ReferenceItem[]) ?? []; },
+    legacy: { ids: ['references'], read: (v1) => v1.references },
+  },
+
+  /* ═════════════ 3. Home y navegación ═════════════ */
+  {
+    id: 'HOM-01', stage: 'home', category: 'Primera impresión', type: 'cards',
+    text: '¿Qué es lo primero que debe entender un visitante al entrar?',
+    context: 'Es lo que aparece arriba del todo, antes de hacer scroll.',
+    options: [
+      { value: 'value', label: 'Qué vendemos y por qué elegirnos', toppings: ['hero-banner'] },
+      { value: 'promo', label: 'La promoción vigente', toppings: ['hero-banner'] },
+      { value: 'categories', label: 'Las categorías para comprar rápido', toppings: ['category-circles'] },
+      { value: 'story', label: 'La historia de la marca', toppings: ['brand-story'] },
+    ],
+    effect: 'Agrega la primera sección del Home (banner, categorías o historia de marca).',
+    preview: { page: 'home' },
+  },
+  {
+    id: 'HOM-02', stage: 'home', category: 'Promociones', type: 'multi',
+    text: '¿Cómo quieren presentar las promociones de la tienda?',
+    context: 'Puedes combinar varias. Cada una abre preguntas para configurarla.',
+    options: [
+      { value: 'banner', label: 'Banner principal', toppings: ['hero-banner'] },
+      { value: 'carousel', label: 'Carrusel de promociones', toppings: ['promo-carousel'] },
+      { value: 'countdown', label: 'Cuenta regresiva', toppings: ['countdown'], scope: 'validation' },
+      { value: 'popup', label: 'Pop-up promocional', toppings: ['promo-popup'], scope: 'validation' },
+      { value: 'bar', label: 'Barra de anuncios', toppings: ['announcement-bar'] },
+      { value: 'none', label: 'No deseo promociones destacadas', exclusive: true },
+    ],
+    effect: 'Agrega o quita banner, carrusel, cuenta regresiva, pop-up o barra de anuncios.',
+    preview: { page: 'home' },
+    features: ['Promociones en el Home'],
+  },
+  {
+    id: 'HOM-03', stage: 'home', category: 'Promociones', type: 'cards', showIf: { topping: 'hero-banner' },
+    text: '¿Cómo debe verse el banner principal?',
+    options: [{ value: 'split', label: 'Texto + imagen', visual: 'pdp-split' }, { value: 'full', label: 'Imagen completa', visual: 'gallery-slider' }, { value: 'centered', label: 'Centrado', visual: 'pdp-stacked' }],
+    effect: 'Cambia la estructura del banner principal.',
+    preview: { page: 'home', target: 'hero' },
+  },
+  {
+    id: 'HOM-04', stage: 'home', category: 'Promociones', type: 'fields', showIf: { topping: 'hero-banner' },
+    fields: [{ key: 'title', label: 'Título', placeholder: 'Ej. Tu bienestar, todos los días' }, { key: 'text', label: 'Texto de apoyo', placeholder: 'Ej. Envío a todo el país' }, { key: 'cta', label: 'Texto del botón', placeholder: 'Ej. Comprar ahora' }],
+    text: '¿Qué mensaje debe decir el banner principal?',
+    context: 'Título, texto de apoyo y botón. Si lo dejan vacío usamos un texto de ejemplo según el tono de la marca.',
+    effect: 'El banner muestra exactamente estos textos.',
+    preview: { page: 'home', target: 'hero' },
+  },
+  {
+    id: 'HOM-05', stage: 'home', category: 'Promociones', type: 'single', showIf: { q: 'HOM-02', includes: 'carousel' },
+    text: '¿Cuántas promociones rotarían en el carrusel?',
+    options: ['2', '3', '4', '5'].map((v) => ({ value: v, label: `${v} promociones` })),
+    effect: 'El carrusel muestra esa cantidad de slides.',
+    preview: { page: 'home', target: 'slideshow' },
+  },
+  {
+    id: 'HOM-06', stage: 'home', category: 'Promociones', type: 'boolean', showIf: { q: 'HOM-02', includes: 'carousel' },
+    text: '¿El carrusel debe avanzar solo?',
+    context: 'Avanzar solo muestra todas las promociones, pero algunas personas no alcanzan a leerlas.',
+    options: yesNo(undefined, ['Sí, automático', 'No, el cliente lo controla']),
+    effect: 'Activa o desactiva la rotación automática.',
+    preview: { page: 'home', target: 'slideshow' },
+  },
+  {
+    id: 'HOM-07', stage: 'home', category: 'Promociones', type: 'text', showIf: { q: 'HOM-02', includes: 'countdown' }, placeholder: 'Ej. Black Friday',
+    text: '¿Para qué evento sería la cuenta regresiva?',
+    effect: 'El contador muestra el nombre del evento.',
+    preview: { page: 'home', target: 'countdown' },
+  },
+  {
+    id: 'HOM-08', stage: 'home', category: 'Promociones', type: 'single', showIf: { q: 'HOM-02', includes: 'countdown' },
+    text: '¿Cuánto dura normalmente una campaña así?',
+    context: 'Usamos este dato para un escenario demostrativo del contador.',
+    options: [{ value: '24h', label: '24 horas' }, { value: '3d', label: '3 días' }, { value: '7d', label: '1 semana' }],
+    effect: 'El contador del simulador arranca con esa duración.',
+    preview: { page: 'home', target: 'countdown' },
+  },
+  {
+    id: 'HOM-09', stage: 'home', category: 'Promociones', type: 'single', showIf: { q: 'HOM-02', includes: 'popup' },
+    text: '¿En qué momento aparecería el pop-up?',
+    options: [{ value: 'delay', label: 'A los pocos segundos de entrar' }, { value: 'scroll', label: 'Al bajar en la página' }, { value: 'exitIntent', label: 'Cuando va a salir del sitio' }],
+    effect: 'Define el disparador del pop-up (el simulador lo muestra al abrir el Home).',
+    preview: { page: 'home', target: 'leads', action: 'showPopup' },
+  },
+  {
+    id: 'HOM-10', stage: 'home', category: 'Promociones', type: 'text', showIf: { q: 'HOM-02', includes: 'popup' }, placeholder: 'Ej. 10% en tu primera compra',
+    text: '¿Qué ofrece el pop-up?',
+    effect: 'El pop-up muestra este incentivo.',
+    preview: { page: 'home', target: 'leads', action: 'showPopup' },
+  },
+  {
+    id: 'HOM-11', stage: 'home', category: 'Promociones', type: 'text', showIf: { q: 'HOM-02', includes: 'bar' }, placeholder: 'Ej. Envío gratis desde $150.000',
+    text: '¿Qué mensaje va en la barra de anuncios?',
+    effect: 'La barra superior muestra este texto en todo el sitio.',
+    preview: { page: 'home', target: 'announcement' },
+    legacy: { ids: ['header.promoText'], read: (v1) => v1.header.promoText },
+  },
+  {
+    id: 'HOM-12', stage: 'home', category: 'Promociones', type: 'boolean', showIf: { q: 'HOM-02', includes: 'bar' },
+    text: '¿La barra alternaría varios mensajes?',
+    options: yesNo(),
+    effect: 'La barra rota entre mensajes.',
+    preview: { page: 'home', target: 'announcement' },
+  },
+  {
+    id: 'HOM-13', stage: 'home', category: 'Navegación desde el Home', type: 'multi',
+    text: '¿Cómo debe llegar el cliente a los productos desde el Home?',
+    options: [
+      { value: 'circles', label: 'Categorías en círculos', toppings: ['category-circles'] },
+      { value: 'cards', label: 'Categorías en tarjetas grandes', toppings: ['category-cards'] },
+      { value: 'goals', label: 'Por necesidad u objetivo', toppings: ['shop-by-goal'], scope: 'tbd' },
+      { value: 'brands', label: 'Por marca', toppings: ['brand-strip'] },
+    ],
+    effect: 'Agrega bloques de navegación al Home.',
+    preview: { page: 'home' },
+  },
+  {
+    id: 'HOM-14', stage: 'home', category: 'Productos en el Home', type: 'multi',
+    text: '¿Qué productos quieren destacar en el Home?',
+    options: [
+      { value: 'bestSellers', label: 'Los más vendidos', toppings: ['best-sellers'] },
+      { value: 'newArrivals', label: 'Novedades', toppings: ['new-arrivals'] },
+      { value: 'curated', label: 'Una selección del equipo', toppings: ['curated-collection'] },
+      { value: 'onSale', label: 'Ofertas', toppings: ['on-sale'] },
+      { value: 'kits', label: 'Kits o combos', toppings: ['bundles-showcase'], scope: 'validation' },
+      { value: 'none', label: 'Ninguno', exclusive: true },
+    ],
+    effect: 'Agrega carruseles o cuadrículas de productos.',
+    preview: { page: 'home' },
+  },
+  {
+    id: 'HOM-15', stage: 'home', category: 'Productos en el Home', type: 'cards',
+    showIf: { q: 'HOM-14', includesAny: ['bestSellers', 'newArrivals', 'curated', 'onSale'] },
+    text: '¿Cómo se muestran esos productos?',
+    options: [{ value: 'carousel', label: 'Carrusel deslizable', visual: 'related-carousel' }, { value: 'grid', label: 'Cuadrícula', visual: 'related-grid' }],
+    effect: 'Cambia el formato de los bloques de productos.',
+    preview: { page: 'home', target: 'bestSellers' },
+  },
+  {
+    id: 'HOM-16', stage: 'home', category: 'Productos en el Home', type: 'cards',
+    showIf: { q: 'HOM-14', includesAny: ['bestSellers', 'newArrivals', 'curated', 'onSale'] },
+    text: '¿Cuántos productos por fila en computador?',
+    options: [{ value: '3', label: '3', visual: 'cols-3' }, { value: '4', label: '4', visual: 'cols-4' }, { value: '5', label: '5', visual: 'cols-5' }],
+    effect: 'Cambia la cantidad de productos visibles por fila.',
+    preview: { page: 'home', target: 'bestSellers' },
+  },
+  {
+    id: 'HOM-17', stage: 'home', category: 'Confianza', type: 'multi',
+    text: '¿Qué le daría confianza a un cliente para comprarles por primera vez?',
+    options: [
+      { value: 'benefits', label: 'Beneficios (envío, pago seguro, asesoría)', toppings: ['benefits-bar'] },
+      { value: 'testimonials', label: 'Opiniones de clientes', toppings: ['testimonials'] },
+      { value: 'story', label: 'Conocer la marca', toppings: ['brand-story'] },
+      { value: 'partners', label: 'Marcas y aliados reconocidos', toppings: ['brand-strip'] },
+      { value: 'none', label: 'Ninguno por ahora', exclusive: true },
+    ],
+    effect: 'Agrega bloques de confianza al Home.',
+    preview: { page: 'home' },
+  },
+  {
+    id: 'HOM-18', stage: 'home', category: 'Contenido', type: 'multi',
+    text: '¿Quieren contenido educativo en el Home?',
+    options: [
+      { value: 'blog', label: 'Artículos del blog', toppings: ['blog-teaser'] },
+      { value: 'faq', label: 'Preguntas frecuentes', toppings: ['faq-block'] },
+      { value: 'none', label: 'No', exclusive: true },
+    ],
+    effect: 'Agrega blog y/o preguntas frecuentes al Home.',
+    preview: { page: 'home' },
+  },
+  {
+    id: 'HOM-19', stage: 'home', category: 'Cierre del Home', type: 'cards',
+    text: '¿Qué debería hacer el visitante al llegar al final del Home?',
+    options: [
+      { value: 'newsletter', label: 'Suscribirse al newsletter', toppings: ['newsletter-block'] },
+      { value: 'advisor', label: 'Hablar con un asesor', toppings: ['final-cta'] },
+      { value: 'catalog', label: 'Ir al catálogo', toppings: ['final-cta'] },
+      { value: 'none', label: 'Nada en particular' },
+    ],
+    effect: 'Agrega la última sección del Home.',
+    preview: { page: 'home', target: 'newsletter' },
+  },
+  {
+    id: 'HOM-20', stage: 'home', category: 'Orden del Home', type: 'homeOrder',
+    text: '¿En qué orden van las secciones del Home?',
+    context: 'Tus respuestas ya armaron el Home. Revisa el orden, arrastra para cambiarlo y agrega toppings si falta algo.',
+    effect: 'Reordena las secciones del Home en el simulador.',
+    preview: { page: 'home' },
+  },
+  {
+    id: 'HOM-21', stage: 'home', category: 'Páginas', type: 'pages',
+    text: '¿Qué páginas tendrá el sitio?',
+    context: 'Inicio y catálogo siempre existen. Al elegir una página aparece en el mapa del sitio y en el simulador.',
+    effect: 'Agrega o quita páginas del sitio, el menú y el footer.',
+    suggest: () => WELLNESS_PAGES,
+    apply: (v, c) => { if (Array.isArray(v) && v.length) c.pages = v as PageDef[]; },
+    preview: { page: 'home', target: 'header' },
+    legacy: { ids: ['pages', 'menu'], read: (v1) => v1.pages },
+  },
+  {
+    id: 'HOM-22', stage: 'home', category: 'Menú', type: 'cards',
+    text: '¿Cómo debe ser el menú de productos?',
+    context: 'Simple: enlaces directos. Desplegable: lista de categorías. Megamenú: columnas con categorías, objetivos, marcas y una promoción.',
+    options: [
+      { value: 'simple', label: 'Simple', visual: 'menu-simple' },
+      { value: 'dropdown', label: 'Desplegable', visual: 'menu-dropdown' },
+      { value: 'mega', label: 'Megamenú', visual: 'menu-mega', toppings: ['mega-menu'], scope: 'validation' },
+    ],
+    effect: 'Cambia el menú del encabezado; el simulador lo muestra abierto.',
+    apply: (v, c) => { c.header.menuType = v as 'simple'; },
+    preview: { page: 'home', target: 'header', action: 'openMenu' },
+    legacy: { ids: ['header.menuType'], read: (v1) => v1.header.menuType },
+  },
+  {
+    id: 'HOM-23', stage: 'home', category: 'Menú', type: 'multi', showIf: { topping: 'mega-menu' },
+    text: '¿Qué columnas tendría el megamenú?',
+    options: [{ value: 'categories', label: 'Categorías' }, { value: 'goals', label: 'Objetivos' }, { value: 'brands', label: 'Marcas' }, { value: 'promo', label: 'Bloque promocional' }],
+    effect: 'El megamenú muestra solo esas columnas.',
+    preview: { page: 'home', target: 'header', action: 'openMenu' },
+  },
+  {
+    id: 'HOM-24', stage: 'home', category: 'Encabezado', type: 'multi',
+    text: '¿Qué debe tener siempre a mano el cliente en el encabezado?',
+    options: [
+      { value: 'search', label: 'Buscador' },
+      { value: 'account', label: 'Mi cuenta', toppings: ['customer-accounts'] },
+      { value: 'cart', label: 'Carrito' },
+      { value: 'wishlist', label: 'Lista de deseos', toppings: ['wishlist'], scope: 'additional' },
+      { value: 'utilityBar', label: 'Barra de contacto superior' },
+    ],
+    effect: 'Agrega o quita íconos del encabezado.',
+    apply: (v, c) => { const keep = c.header.elements.filter((e) => e === 'promoBar'); c.header.elements = [...keep, ...((v as HeaderElement[]) ?? [])]; },
+    preview: { page: 'home', target: 'header' },
+    legacy: { ids: ['header.elements'], read: (v1) => v1.header.elements.filter((e) => e !== 'promoBar') },
+  },
+  {
+    id: 'HOM-25', stage: 'home', category: 'Encabezado', type: 'cards',
+    text: '¿Dónde va el logo?',
+    options: [{ value: 'left', label: 'A la izquierda', visual: 'logo-left' }, { value: 'center', label: 'Centrado', visual: 'logo-center' }],
+    effect: 'Mueve el logo en el encabezado.',
+    apply: (v, c) => { c.header.logoPosition = v as 'left'; },
+    preview: { page: 'home', target: 'header' },
+    legacy: { ids: ['header.logoPosition'], read: (v1) => v1.header.logoPosition },
+  },
+  {
+    id: 'HOM-26', stage: 'home', category: 'Encabezado', type: 'boolean',
+    text: '¿El menú debe quedarse visible al bajar por la página?',
+    options: yesNo(['sticky-header']),
+    effect: 'El encabezado se queda fijo (o no) al hacer scroll.',
+    apply: (v, c) => { c.header.sticky = v === true; },
+    preview: { page: 'home', target: 'header' },
+    legacy: { ids: ['header.sticky'], read: (v1) => v1.header.sticky },
+  },
+  {
+    id: 'HOM-27', stage: 'home', category: 'Páginas', type: 'menu',
+    text: '¿Qué páginas van en el menú principal y cuáles en el footer?',
+    effect: 'Cambia los enlaces del menú y del footer.',
+    apply: (v, c) => {
+      const x = v as { order?: string[]; menu?: string[]; footer?: string[] } | undefined;
+      if (!x) return;
+      const idx = (id: string) => { const i = x.order?.indexOf(id) ?? -1; return i < 0 ? 999 : i; };
+      c.pages = [...c.pages].sort((a, b) => idx(a.id) - idx(b.id)).map((p) => ({ ...p, inMenu: x.menu ? x.menu.includes(p.id) : p.inMenu, inFooter: x.footer ? x.footer.includes(p.id) : p.inFooter }));
+    },
+    preview: { page: 'home', target: 'header' },
+  },
+  {
+    id: 'HOM-28', stage: 'home', category: 'Footer', type: 'multi',
+    text: '¿Qué debe tener el pie de página?',
+    options: [{ value: 'newsletter', label: 'Suscripción al newsletter' }, { value: 'social', label: 'Redes sociales' }, { value: 'payments', label: 'Medios de pago' }],
+    effect: 'Muestra u oculta bloques del footer.',
+    apply: (v, c) => { const l = (v as string[]) ?? []; c.footer.showNewsletter = l.includes('newsletter'); c.footer.showSocial = l.includes('social'); c.footer.showPayments = l.includes('payments'); },
+    preview: { page: 'home', target: 'footer' },
+    legacy: { ids: ['footer'], read: (v1) => [v1.footer.showNewsletter && 'newsletter', v1.footer.showSocial && 'social', v1.footer.showPayments && 'payments'].filter(Boolean) },
+  },
+  {
+    id: 'HOM-29', stage: 'home', category: 'Atención', type: 'boolean',
+    text: '¿Quieren un botón de WhatsApp siempre visible?',
+    options: yesNo(['whatsapp-button']),
+    effect: 'Aparece un botón flotante de WhatsApp en todas las páginas.',
+    preview: { page: 'home', target: 'whatsapp' },
+  },
+  {
+    id: 'HOM-30', stage: 'home', category: 'Atención', type: 'text', showIf: { topping: 'whatsapp-button' }, placeholder: 'Hola, quiero asesoría para mi compra',
+    text: '¿Con qué mensaje debería iniciar la conversación?',
+    effect: 'El botón de WhatsApp usa este mensaje.',
+    preview: { page: 'home', target: 'whatsapp' },
+  },
+];
+
+export const DEFAULT_CATEGORIES = DEMO_CATEGORIES.slice(0, 6);

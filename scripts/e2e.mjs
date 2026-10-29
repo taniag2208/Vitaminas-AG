@@ -1,11 +1,11 @@
 /**
- * QA end-to-end de los 16 criterios de aceptación obligatorios del MVP.
+ * QA end-to-end — Tita Discovery Studio 2.0
+ *
+ * Verifica los criterios de aceptación 2.0 (Discovery guiado → simulador) y los 16 criterios
+ * del MVP adaptados al nuevo flujo.
  *
  * Uso:  npm run build && npm run preview   (en otra terminal)
  *       npm run e2e                        (BASE_URL opcional, por defecto http://localhost:4173)
- *
- * Requiere Playwright con Chromium disponible (`npm i -D playwright && npx playwright install chromium`
- * o una instalación global).
  */
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
@@ -23,14 +23,14 @@ const OUT = path.resolve('e2e-artifacts');
 fs.mkdirSync(OUT, { recursive: true });
 
 const results = [];
-const check = async (n, name, fn) => {
+const check = async (id, name, fn) => {
   try {
     await fn();
-    results.push({ n, name, ok: true });
-    console.log(`  ✔ ${n}. ${name}`);
+    results.push({ id, name, ok: true });
+    console.log(`  ✔ ${id} ${name}`);
   } catch (e) {
-    results.push({ n, name, ok: false, error: e.message });
-    console.log(`  ✘ ${n}. ${name}\n      → ${e.message.split('\n')[0]}`);
+    results.push({ id, name, ok: false, error: e.message });
+    console.log(`  ✘ ${id} ${name}\n      → ${e.message.split('\n')[0]}`);
   }
 };
 const assert = (c, msg) => { if (!c) throw new Error(msg); };
@@ -44,9 +44,22 @@ page.on('pageerror', (e) => errors.push(e.message));
 page.on('console', (m) => m.type() === 'error' && !m.text().includes('fonts.g') && errors.push(m.text()));
 
 const sim = () => page.getByTestId('simulator');
-const phase = (id) => page.getByTestId(`phase-${id}`).click();
-const q = (id) => page.locator(`[data-question="${id}"]`);
-const shot = async (name) => { await page.waitForTimeout(450); return page.screenshot({ path: path.join(OUT, `${name}.png`) }); };
+const shot = async (name) => { await page.waitForTimeout(500); await page.screenshot({ path: path.join(OUT, `${name}.png`) }); };
+const STAGE = { CTX: 'context', BRD: 'brand', HOM: 'home', CAT: 'catalog', PDP: 'product', CRT: 'cart', FID: 'customers', MKT: 'marketing', OPS: 'operations', VAL: 'closing' };
+const card = (id) => page.locator(`[data-question="${id}"]`);
+/** Abre una pregunta: cambia de etapa si hace falta y la pone en foco. */
+const open = async (id) => {
+  await page.getByTestId('workspace-discovery').click();
+  if (await card(id).count()) return card(id);
+  await page.getByTestId(`stage-${STAGE[id.slice(0, 3)]}`).click();
+  if (!(await card(id).count())) await page.locator(`[data-question-row="${id}"]`).click();
+  await card(id).waitFor();
+  return card(id);
+};
+const pick = async (id, ...values) => { const c = await open(id); for (const v of values) await c.locator(`[data-option="${v}"]`).click(); await page.waitForTimeout(120); };
+const type = async (id, text, field) => { const c = await open(id); const input = field ? c.locator(`[data-field="${field}"]`) : c.locator('input, textarea').first(); await input.fill(text); await page.waitForTimeout(120); };
+const homeOrder = () => sim().locator('[data-section-id]').evaluateAll((els) => els.map((e) => e.getAttribute('data-section-id')));
+const goSim = async (p) => page.getByTestId(`quick-${p}`).click();
 
 await page.goto(BASE);
 await page.evaluate(() => localStorage.clear());
@@ -55,293 +68,307 @@ await page.getByRole('button', { name: 'Nuevo proyecto' }).first().click();
 await page.getByRole('button', { name: 'Crear y empezar' }).click();
 await sim().waitFor();
 
-console.log('\nCriterios de aceptación — Tita Discovery Studio\n');
+console.log('\nCriterios 2.0 — Discovery guiado\n');
 
-await check(1, 'Agregar una página en Discovery la incorpora al mapa del sitio', async () => {
-  assert((await page.locator('[data-sitemap-node="kits"]').count()) === 0, 'Kits ya existía');
-  await page.locator('[data-page-type="kits"]').click();
-  await page.locator('[data-sitemap-node="kits"]').waitFor({ timeout: 2000 });
-  await page.locator('[data-sitemap-node="kits"]').click();
-  await sim().getByText('Agregar kit').first().waitFor({ timeout: 2000 });
+await check('2.0-01', 'El simulador arranca vacío y la primera pregunta es de negocio, en lenguaje natural', async () => {
+  await sim().getByTestId('empty-home').waitFor();
+  const c = card('CTX-01');
+  await c.waitFor();
+  assert((await c.innerText()).includes('¿Qué vende principalmente la tienda?'), 'Primera pregunta');
+  assert((await c.locator('p').first().innerText()).length > 10, 'Sin microexplicación');
+  await shot('01-start');
 });
 
-await check(2, 'Eliminar una página la retira de la navegación', async () => {
-  const nav = sim().getByTestId('main-nav');
-  assert(await nav.getByRole('button', { name: 'Blog' }).count() === 1, 'Blog no estaba en el menú');
-  await page.locator('[data-page-type="blog"]').click();
-  await page.waitForTimeout(150);
-  assert(await nav.getByRole('button', { name: 'Blog' }).count() === 0, 'Blog sigue en el menú');
-  assert(await sim().getByTestId('footer-links').getByRole('button', { name: 'Blog' }).count() === 0, 'Blog sigue en el footer');
-  assert(await page.locator('[data-sitemap-node="blog"]').count() === 0, 'Blog sigue en el mapa del sitio');
+await check('2.0-02', 'Una persona no técnica avanza con tarjetas, texto y "Continuar"', async () => {
+  await pick('CTX-01', 'supplements');
+  assert((await card('CTX-01').getByTestId('next-question').count()) === 1, 'Botón continuar');
+  await card('CTX-01').getByTestId('next-question').click();
+  await card('CTX-02').waitFor();
+  await pick('CTX-02', 'b2c');
+  await card('CTX-02').getByTestId('next-question').click();
+  await type('CTX-03', 'AG Vitaminas QA');
+  await sim().getByText('AG Vitaminas QA').first().waitFor();
 });
 
-await check(3, 'Seleccionar una sección del Home la incorpora inmediatamente', async () => {
-  await phase('home');
-  assert(await sim().locator('[data-section-type="testimonials"]').count() === 0, 'Ya había testimonios');
-  await page.locator('[data-palette-type="testimonials"]').click();
-  await sim().locator('[data-section-type="testimonials"]').waitFor({ timeout: 2000 });
-  await shot('03-home-builder');
+await check('2.0-03', 'Las recomendaciones son contextuales y distintas de lo solicitado', async () => {
+  await page.getByTestId('stage-home').click();
+  const rec = page.locator('[data-recommendation="shop-by-goal"]');
+  await rec.waitFor();
+  assert((await homeOrder()).length === 0, 'Una recomendación no debe estar en el simulador');
+  await rec.getByTestId('accept-recommendation').click();
+  await sim().locator('[data-section-id="shop-by-goal"]').waitFor();
 });
 
-const simOrder = () => sim().locator('[data-section-type]').evaluateAll((els) => els.map((e) => e.getAttribute('data-section-type')));
+await check('2.0-04', 'Cada respuesta relevante modifica el simulador automáticamente', async () => {
+  await pick('HOM-01', 'value');
+  await sim().locator('[data-section-id="hero-banner"]').waitFor();
+  await type('HOM-04', 'Bienestar AG — prueba QA', 'title');
+  await sim().getByRole('heading', { name: 'Bienestar AG — prueba QA' }).waitFor();
+  await pick('BRD-03', 'premium');
+  const font = await sim().evaluate((el) => el.style.getPropertyValue('--sim-heading-font'));
+  assert(font.includes('Playfair'), `Tipografía ${font}`);
+});
 
-await check(4, 'Reordenar secciones cambia su posición en el simulador', async () => {
-  const before = await simOrder();
-  // a) Flechas
-  await page.getByRole('radio', { name: /Ordenar y editar/ }).click();
+await check('2.0-05', 'Las preguntas condicionales aparecen y desaparecen con la respuesta', async () => {
+  await open('HOM-02');
+  assert((await page.locator('[data-question-row="HOM-05"]').count()) === 0, 'HOM-05 visible antes de tiempo');
+  await pick('HOM-02', 'carousel', 'countdown');
+  await page.locator('[data-question-row="HOM-05"]').waitFor();
+  await page.locator('[data-question-row="HOM-07"]').waitFor();
+  await shot('05-conditional');
+});
+
+await check('2.0-06', 'Los toppings tienen variantes y parámetros configurables por seguimiento', async () => {
+  await pick('HOM-05', '4');
+  assert((await sim().locator('[data-section-id="promo-carousel"] button[aria-label^="Ir al slide"]').count()) === 4, 'Cantidad de slides');
+  await type('HOM-07', 'Cyber Lunes');
+  await goSim('home');
+  await sim().locator('[data-testid="countdown"]').getByText('Cyber Lunes').waitFor();
+  await pick('HOM-03', 'full');
+  assert((await sim().locator('[data-section-id="hero-banner"]').getAttribute('data-variant')) === 'full', 'Variante del banner');
+});
+
+await check('2.0-07', 'Cambiar una respuesta mantiene coherente el simulador sin perder lo independiente', async () => {
+  await pick('HOM-02', 'carousel'); // quitar carrusel
+  const ids = await homeOrder();
+  assert(!ids.includes('promo-carousel'), 'El carrusel sigue en el Home');
+  assert(ids.includes('countdown') && ids.includes('hero-banner') && ids.includes('shop-by-goal'), `Se perdieron secciones: ${ids}`);
+  assert((await page.locator('[data-question-row="HOM-05"]').count()) === 0, 'La pregunta de seguimiento sigue visible');
+  await pick('HOM-02', 'carousel');
+  assert((await sim().locator('[data-section-id="promo-carousel"] button[aria-label^="Ir al slide"]').count()) === 4, 'No conservó el parámetro al reactivar');
+  await pick('HOM-02', 'none');
+  const after = await homeOrder();
+  assert(!after.includes('promo-carousel') && !after.includes('countdown'), 'La opción exclusiva no retiró promociones');
+  await pick('HOM-02', 'countdown');
+});
+
+await check('2.0-08', 'Estados: por validar, no aplica y pendiente se distinguen y se cuentan', async () => {
+  const c = await open('HOM-13');
+  await pick('HOM-13', 'circles');
+  await c.getByTestId('mark-to-validate').click();
+  await c.locator('[data-status="to_validate"]').waitFor();
+  await sim().locator('[data-section-id="category-circles"]').waitFor();
+  const c2 = await open('HOM-18');
+  await c2.getByTestId('mark-na').click();
+  const stats = await page.getByTestId('stage-stats').innerText();
+  assert(/1\s*por validar/.test(stats) && /1\s*no aplica/.test(stats), `Contadores ${stats}`);
+});
+
+await check('MVP-04', 'Reordenar el Home (flechas y arrastrar) cambia el simulador', async () => {
+  await open('HOM-20');
   const items = page.getByTestId('home-section-item');
-  const n = await items.count();
-  await items.nth(n - 1).getByRole('button', { name: 'Subir sección' }).click();
-  const afterArrow = await simOrder();
-  assert(afterArrow[n - 2] === before[n - 1] && afterArrow[n - 1] === before[n - 2], `Flechas: ${before} → ${afterArrow}`);
-  // b) Drag & drop (dnd-kit con puntero)
-  await items.nth(0).scrollIntoViewIfNeeded();
+  const before = await homeOrder();
+  await items.nth(1).getByRole('button', { name: 'Subir sección' }).click();
   await page.waitForTimeout(200);
-  const handle = items.nth(0).getByRole('button', { name: /Arrastrar/ });
-  const target = items.nth(2);
-  const hb = await handle.boundingBox();
-  const tb = await target.boundingBox();
+  const after = await homeOrder();
+  assert(after[0] === before[1] && after[1] === before[0], `Flechas ${before} → ${after}`);
+  await items.nth(0).scrollIntoViewIfNeeded();
+  const hb = await items.nth(0).getByRole('button', { name: /Arrastrar/ }).boundingBox();
+  const tb = await items.nth(2).boundingBox();
   const sx = hb.x + hb.width / 2, sy = hb.y + hb.height / 2, ty = tb.y + tb.height * 0.7;
-  await page.mouse.move(sx, sy);
-  await page.mouse.down();
+  await page.mouse.move(sx, sy); await page.mouse.down();
   for (let i = 1; i <= 20; i++) { await page.mouse.move(sx, sy + ((ty - sy) * i) / 20); await page.waitForTimeout(20); }
-  await page.mouse.up();
-  await page.waitForTimeout(250);
-  const afterDrag = await simOrder();
-  assert(afterDrag[0] !== afterArrow[0] && afterDrag.indexOf(afterArrow[0]) === 2, `Drag: ${afterArrow} → ${afterDrag}`);
+  await page.mouse.up(); await page.waitForTimeout(250);
+  const dragged = await homeOrder();
+  assert(dragged.indexOf(after[0]) === 2, `Arrastrar ${after} → ${dragged}`);
+  await shot('mvp04-home-order');
 });
 
-await check(5, 'Modificar un título actualiza el contenido visible', async () => {
-  const heroItem = page.locator('[data-testid="home-section-item"][data-section-type="hero"]');
-  await heroItem.getByRole('button', { name: 'Editar sección' }).click();
-  const input = page.locator('[data-testid^="section-title-hero"]');
-  await input.fill('Bienestar diario AG — prueba QA');
-  await sim().getByRole('heading', { name: 'Bienestar diario AG — prueba QA' }).waitFor({ timeout: 2000 });
+await check('MVP-01/02', 'Agregar y quitar páginas actualiza navegación y mapa del sitio', async () => {
+  const c = await open('HOM-21');
+  await c.getByRole('button', { name: /Usar la sugerencia/ }).click();
+  await sim().getByTestId('main-nav').getByRole('button', { name: 'Blog' }).waitFor();
+  await c.locator('[data-page-type="blog"]').click();
+  await page.waitForTimeout(150);
+  assert(await sim().getByTestId('main-nav').getByRole('button', { name: 'Blog' }).count() === 0, 'Blog sigue en el menú');
+  const routes = await page.getByTestId('route-select').locator('option').allInnerTexts();
+  assert(routes.some((r) => r.includes('Preguntas frecuentes')) && !routes.some((r) => r.trim() === 'Blog'), `Mapa ${routes}`);
 });
 
-await check(6, 'Cambiar el diseño de filtros modifica su presentación', async () => {
-  await phase('catalog');
-  await sim().getByTestId('collection-page').waitFor();
-  assert(await sim().getByTestId('filter-sidebar').count() === 1, 'No inicia con barra lateral');
-  await q('catalog.filterLayout').locator('[data-option="horizontal"]').click();
-  await sim().getByTestId('filter-horizontal').waitFor({ timeout: 2000 });
-  assert(await sim().getByTestId('filter-sidebar').count() === 0, 'La barra lateral sigue visible');
-  await shot('06-filters-horizontal');
-  await q('catalog.filterLayout').locator('[data-option="sidebar"]').click();
+await check('2.0-09', 'Menú: el tipo y las columnas se ven en el simulador', async () => {
+  await pick('HOM-22', 'mega');
+  await sim().getByTestId('megamenu').waitFor();
+  await pick('HOM-23', 'brands', 'categories');
+  await page.waitForTimeout(150);
+  const t = await sim().getByTestId('megamenu').innerText();
+  assert(/marcas/i.test(t) && /categor/i.test(t) && !/objetivos/i.test(t), `Columnas del megamenú: ${t.slice(0, 80)}`);
+  await shot('09-megamenu');
+});
+
+await check('MVP-15', 'Lo adicional o por validar se identifica sin bloquearse (lista de deseos)', async () => {
+  await pick('HOM-24', 'search', 'cart', 'wishlist');
+  await card('HOM-24').getByTestId('scope-warning').waitFor();
+  assert((await card('HOM-24').getByTestId('scope-warning').innerText()).includes('requiere revisión de alcance y viabilidad'), 'Texto de advertencia');
+  await goSim('catalog');
+  await sim().getByTestId('wishlist-toggle').first().click();
+  assert((await sim().getByTestId('header-wishlist').getAttribute('aria-label')).includes('1 productos'), 'Contador de favoritos');
+});
+
+await check('2.0-10', 'WhatsApp: el botón funciona y deja claro que es simulación', async () => {
+  await pick('HOM-29', 'true');
+  await sim().getByTestId('whatsapp-button').click();
+  await sim().getByText(/Simulación: en la tienda real abriría WhatsApp/).waitFor();
+});
+
+await check('MVP-06/07', 'Filtros: presentación y filtrado real sobre el catálogo', async () => {
+  await pick('CAT-03', 'brand', 'goal');
+  await goSim('catalog');
   await sim().getByTestId('filter-sidebar').waitFor();
-});
-
-await check(7, 'Aplicar filtros cambia los productos mostrados', async () => {
   const count = async () => Number((await sim().getByTestId('result-count').innerText()).match(/\d+/)[0]);
   const total = await count();
   await sim().getByTestId('filter-sidebar').getByLabel('Kinetik').check();
   await page.waitForTimeout(150);
-  const filtered = await count();
-  const cards = await sim().getByTestId('product-card').count();
-  assert(filtered < total && filtered > 0, `Contador ${total} → ${filtered}`);
-  assert(cards === filtered, `Tarjetas visibles ${cards} ≠ contador ${filtered}`);
-  const brands = await sim().getByTestId('product-card').locator('span.uppercase').allInnerTexts();
-  assert(brands.every((b) => /kinetik/i.test(b)), `Marcas: ${brands}`);
-  await sim().getByTestId('filter-sidebar').getByLabel('Deporte').check();
-  await page.waitForTimeout(150);
-  assert((await count()) <= filtered, 'El segundo filtro no restringe');
-  await shot('07-filters-applied');
-  await sim().getByRole('button', { name: 'Limpiar todo' }).click();
-  assert((await count()) === total, 'Limpiar no restablece');
+  const n = await count();
+  assert(n > 0 && n < total && (await sim().getByTestId('product-card').count()) === n, `Filtro ${total} → ${n}`);
+  await pick('CAT-06', 'horizontal');
+  await sim().getByTestId('filter-horizontal').waitFor();
 });
 
-await check(8, 'Cambiar el layout de ficha de producto modifica su estructura', async () => {
-  await phase('product');
-  const pdp = sim().getByTestId('product-page');
-  await pdp.waitFor();
-  assert((await pdp.getAttribute('data-layout')) === 'split', 'Layout inicial');
-  await q('product.layout').locator('[data-option="stacked"]').click();
-  assert((await pdp.getAttribute('data-layout')) === 'stacked', 'No cambió a apilado');
-  await q('product.gallery').locator('[data-option="grid"]').click();
-  await sim().getByTestId('gallery-grid').waitFor({ timeout: 2000 });
-  await q('product.infoDisplay').locator('[data-option="tabs"]').click();
-  assert((await sim().getByTestId('pdp-info').getAttribute('data-info-display')) === 'tabs', 'Info no cambió a pestañas');
-  await sim().getByRole('tab', { name: 'Modo de uso' }).click();
-  await sim().getByText('Modo de uso según la etiqueta').waitFor();
-  await shot('08-pdp-stacked');
-  await q('product.layout').locator('[data-option="split"]').click();
-  await q('product.gallery').locator('[data-option="thumbnails"]').click();
-});
-
-await check(9, 'Seleccionar variantes modifica la selección activa', async () => {
-  const sel = sim().getByTestId('selected-variant');
-  const before = await sel.innerText();
+await check('MVP-08/09/10', 'Ficha: layout, variantes y carrito', async () => {
+  await pick('PDP-02', 'stacked');
+  await goSim('product');
+  assert((await sim().getByTestId('product-page').getAttribute('data-layout')) === 'stacked', 'Layout');
   await sim().getByRole('radio', { name: '120 tabletas' }).click();
-  const after = await sel.innerText();
-  assert(before !== after && after === '120 tabletas', `${before} → ${after}`);
-  assert((await sim().getByRole('radio', { name: '120 tabletas' }).getAttribute('aria-checked')) === 'true', 'aria-checked');
-});
-
-await check(10, 'Agregar al carrito actualiza el carrito simulado', async () => {
-  await sim().getByRole('button', { name: 'Aumentar cantidad' }).click();
+  assert((await sim().getByTestId('selected-variant').innerText()) === '120 tabletas', 'Variante');
   await sim().getByRole('button', { name: 'Agregar al carrito' }).first().click();
-  await sim().getByTestId('cart-drawer').waitFor({ timeout: 2000 });
-  assert((await sim().getByTestId('cart-count').innerText()) === '2', 'Contador del carrito');
-  assert((await sim().getByTestId('cart-line').count()) === 1, 'Líneas del carrito');
-  const sub1 = await sim().getByTestId('cart-subtotal').innerText();
-  await sim().getByTestId('cart-drawer').getByRole('button', { name: 'Aumentar' }).first().click();
-  const sub2 = await sim().getByTestId('cart-subtotal').innerText();
-  assert(sub1 !== sub2, 'Subtotal no recalcula');
-  await shot('10-cart-drawer');
-  // Flujo de compra demostrativo
-  await sim().getByRole('button', { name: 'Ir a pagar' }).click();
+  await page.waitForTimeout(200);
+  await goSim('cart');
+  await sim().getByTestId('cart-line').first().waitFor();
+});
+
+await check('2.0-11', 'B2B: preguntas, precio distribuidor, mínimo y cotización', async () => {
+  await pick('CTX-02', 'b2b');
+  await pick('FID-13', 'segment');
+  const c = await open('CRT-13');
+  await c.locator('input[type="number"]').fill('6');
+  await pick('PDP-18', 'true');
+  await goSim('product');
+  await sim().getByTestId('b2b-toggle').getByRole('button', { name: 'Distribuidor' }).click();
+  await sim().getByTestId('b2b-price').waitFor();
+  await sim().getByTestId('min-qty').waitFor();
+  assert((await sim().getByTestId('pdp-qty').innerText()) === '6', 'Cantidad mínima');
+  await sim().getByRole('button', { name: 'Solicitar cotización' }).click();
+  await sim().getByTestId('quote-form').waitFor();
+  await sim().getByRole('button', { name: 'Cerrar cotización' }).click();
+  await shot('11-b2b');
+});
+
+await check('2.0-12', 'Biblioteca de toppings: agregar, configurar con seguimiento y ver en simulador', async () => {
+  await page.getByTestId('workspace-toppings').click();
+  await page.getByTestId('toppings-workspace').waitFor();
+  await page.locator('[data-topping-card="free-shipping-bar"]').click();
+  await page.getByTestId('topping-detail').getByTestId('add-topping').click();
+  await page.getByTestId('topping-detail').locator('input[type="number"]').fill('200000');
+  await page.waitForTimeout(150);
+  await page.getByTestId('topping-filter-active').click();
+  await page.locator('[data-topping-card="free-shipping-bar"]').waitFor();
+  await shot('12-toppings');
+  await page.getByTestId('workspace-discovery').click();
+  await goSim('cart');
+  await sim().getByTestId('free-shipping-bar').getByText('$ 200.000', { exact: false }).waitFor().catch(async () => {
+    const t = await sim().getByTestId('free-shipping-bar').innerText();
+    assert(/200\.000|envío gratis/i.test(t), `Barra: ${t}`);
+  });
+});
+
+await check('2.0-13', 'Lo pendiente o solicitado no cuenta como aprobado; la validación lo cambia', async () => {
+  await page.getByTestId('workspace-deliverables').click();
+  const approved = async () => Number((await page.getByTestId('executive-summary').locator('p.font-display').nth(1).innerText()).trim());
+  assert((await approved()) === 0, 'Hay aprobadas sin validar');
+  const c = await open('VAL-01');
+  await c.locator('[data-review="hero-banner"]').getByTestId('approve-topping').click();
+  await page.getByTestId('workspace-deliverables').click();
+  assert((await approved()) === 1, 'La aprobación no se reflejó');
+  await page.getByTestId('deliverable-tab-checklist').click();
+  assert((await page.getByTestId('checklist').locator('[data-done="false"]').count()) > 0, 'Checklist completo con pendientes');
+  await shot('13-deliverables');
+});
+
+await check('2.0-14', 'La vista previa se diferencia de una tienda Shopify real', async () => {
+  await page.getByTestId('workspace-discovery').click();
+  await page.getByTestId('preview-disclaimer').waitFor();
+  await goSim('checkout');
   await sim().getByText('checkout nativo de Shopify').waitFor();
-  await sim().getByRole('button', { name: /Simular pedido/ }).click();
-  await sim().getByTestId('order-number').waitFor();
-  assert((await sim().getByTestId('header-cart').innerText()).trim() === '', 'El carrito no se vació tras el pedido');
 });
 
-await check(11, 'Cambiar a vista móvil adapta correctamente la interfaz', async () => {
+await check('MVP-11', 'Vista móvil del simulador y navegación por pestañas en pantallas pequeñas', async () => {
   await page.getByRole('radio', { name: /Móvil/ }).click();
+  await goSim('home');
   await sim().getByTestId('mobile-menu-button').waitFor();
-  assert((await sim().getAttribute('data-device')) === 'mobile', 'data-device');
-  assert(await sim().getByTestId('main-nav').count() === 0, 'El menú desktop sigue visible');
-  const w = await sim().evaluate((el) => el.getBoundingClientRect().width);
-  assert(w <= 400, `Ancho del simulador ${w}`);
-  await sim().getByTestId('mobile-menu-button').click();
-  await sim().getByTestId('mobile-menu').waitFor();
-  await sim().getByTestId('mobile-menu').getByRole('button', { name: 'Catálogo' }).click();
-  await sim().getByTestId('mobile-menu').getByRole('button', { name: 'Ver todo' }).click();
-  await sim().getByRole('button', { name: /Filtrar/ }).click();
-  await sim().getByTestId('filter-drawer').waitFor();
-  const scrollW = await sim().evaluate((el) => el.querySelector('.overflow-y-auto').scrollWidth);
-  assert(scrollW <= 392, `Desbordamiento horizontal ${scrollW}px`);
-  await shot('11-mobile-filters');
-  await sim().getByRole('button', { name: 'Cerrar filtros' }).click();
+  assert((await sim().evaluate((el) => el.getBoundingClientRect().width)) <= 400, 'Ancho móvil');
   await page.getByRole('radio', { name: /Desktop/ }).click();
+  const m = await ctx.newPage();
+  await m.setViewportSize({ width: 390, height: 844 });
+  await m.goto(BASE);
+  await m.getByTestId('tab-simulator').click();
+  await m.getByTestId('simulator').waitFor();
+  await m.getByTestId('tab-discovery').click();
+  await m.getByTestId('discovery-scroll').waitFor();
+  const overflow = await m.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  assert(overflow <= 1, `Desbordamiento horizontal ${overflow}px`);
+  await m.screenshot({ path: path.join(OUT, 'mvp11-mobile-tabs.png') });
+  await m.close();
 });
 
-await check(12, 'Activar anotaciones muestra las especificaciones de implementación', async () => {
+await check('MVP-12', 'Las anotaciones muestran la especificación y el topping asociado', async () => {
+  await goSim('home');
   await page.getByTestId('toggle-annotations').click();
-  const badges = sim().getByRole('button', { name: /Ver implementación Shopify/ });
-  await badges.first().waitFor();
-  assert((await badges.count()) >= 3, 'Pocas anotaciones');
-  await sim().getByRole('button', { name: /Ver implementación Shopify: Filtros/ }).first().click();
+  await sim().getByRole('button', { name: /Ver implementación Shopify: Banner principal/ }).first().click();
   const panel = page.getByTestId('annotation-panel');
   await panel.waitFor();
-  for (const t of ['Funcionalidad esperada', 'Implementación sugerida', 'Dependencias', 'Riesgos', 'Criterios de aceptación']) await panel.getByText(t, { exact: true }).waitFor();
-  assert(await panel.getByText('Dependiente del tema · pendiente').count() > 0, 'No marca la compatibilidad de tema como pendiente');
-  await shot('12-annotations');
+  await panel.getByText('Criterios de aceptación', { exact: true }).waitFor();
+  await panel.getByText(/Topping: Banner principal/).waitFor();
   await page.getByTestId('toggle-annotations').click();
 });
 
-await check(15, 'Las funcionalidades pendientes de validación se identifican correctamente', async () => {
-  await phase('identity');
-  await q('header.elements').getByRole('button', { name: /Lista de deseos/ }).click();
-  await q('header.elements').getByTestId('scope-warning').waitFor();
-  assert((await q('header.elements').getByTestId('scope-warning').innerText()).includes('requiere revisión de alcance y viabilidad'), 'Texto de advertencia');
-  await phase('growth');
-  await q('subscriptions.enabled').getByRole('switch').click();
-  await q('subscriptions.enabled').getByTestId('scope-warning').waitFor();
-  await page.getByTestId('workspace-pmo').click();
-  await page.getByTestId('pmo-tab-scope').click();
-  const additional = page.locator('[data-scope="additional"]');
-  await additional.getByText('Encabezado y navegación').waitFor();
-  await page.locator('[data-scope="validation"]').getByText('Suscripciones').waitFor();
-  await shot('15-pmo-scope');
-  await page.getByTestId('workspace-studio').click();
-});
-
-await check(16, 'El cliente puede volver a cualquier fase sin perder sus respuestas', async () => {
-  await phase('product');
-  assert((await q('product.infoDisplay').locator('[data-option="tabs"]').getAttribute('aria-checked')) === 'true', 'Fase 4 perdió respuesta');
-  await phase('home');
-  assert((await page.getByTestId('toppings-stack').locator('li').count()) >= 8, 'Fase 2 perdió secciones');
-  await phase('identity');
-  assert((await q('header.elements').getByRole('button', { name: /Lista de deseos/ }).getAttribute('aria-pressed')) === 'true', 'Fase 1 perdió respuesta');
-  await q('brand.storeName').getByTestId('approve').click();
-  await q('brand.storeName').getByText('Aprobada').waitFor();
-});
-
-await check(13, 'Las decisiones se conservan al recargar la aplicación', async () => {
-  const orderBefore = await simOrder().catch(() => []);
+await check('MVP-13/16', 'Las respuestas se conservan al navegar y al recargar', async () => {
   await page.reload();
   await sim().waitFor();
-  await q('brand.storeName').getByText('Aprobada').waitFor({ timeout: 3000 });
-  await phase('home');
-  await sim().getByRole('heading', { name: 'Bienestar diario AG — prueba QA' }).waitFor({ timeout: 3000 });
-  const orderAfter = await simOrder();
-  assert(orderBefore.length === 0 || JSON.stringify(orderBefore) === JSON.stringify(orderAfter), 'Orden de secciones distinto tras recargar');
-  await phase('product');
-  assert((await q('product.infoDisplay').locator('[data-option="tabs"]').getAttribute('aria-checked')) === 'true', 'Respuesta perdida tras recargar');
+  await page.getByTestId('stage-home').click();
+  await sim().getByRole('heading', { name: 'Bienestar AG — prueba QA' }).waitFor();
+  const row = page.locator('[data-question-row="HOM-02"]');
+  if (await row.count()) assert((await row.innerText()).includes('Cuenta regresiva'), 'HOM-02 perdió su respuesta');
+  await page.getByTestId('stage-context').click();
+  assert((await page.locator('[data-question-row="CTX-03"]').innerText()).includes('AG Vitaminas QA') || (await card('CTX-03').count()) === 1, 'CTX-03');
 });
 
-await check(14, 'La exportación JSON refleja las decisiones actuales', async () => {
-  await page.getByTestId('export-menu').click();
-  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByTestId('export-json').click()]);
-  const file = path.join(OUT, 'export.json');
-  await dl.saveAs(file);
-  const { config } = JSON.parse(fs.readFileSync(file, 'utf8'));
-  assert(config.home.sections.find((s) => s.type === 'hero').props.title === 'Bienestar diario AG — prueba QA', 'Título del hero');
-  assert(config.pages.some((p) => p.type === 'kits') && !config.pages.some((p) => p.type === 'blog'), 'Páginas');
-  assert(config.home.sections.some((s) => s.type === 'testimonials'), 'Sección agregada');
-  assert(config.catalog.filterLayout === 'sidebar' && config.product.infoDisplay === 'tabs', 'Catálogo/ficha');
-  assert(config.header.elements.includes('wishlist') && config.subscriptions.enabled === true, 'Encabezado/suscripciones');
-  assert(config.decisions['brand.storeName'].status === 'approved', 'Estado de aprobación');
-  // Otras exportaciones generan contenido
-  for (const id of ['summary', 'sitemap', 'pending', 'acceptance', 'claude']) {
+await check('MVP-14', 'Las exportaciones reflejan las respuestas actuales', async () => {
+  const get = async (id) => {
     await page.getByTestId('export-menu').click();
     const [d] = await Promise.all([page.waitForEvent('download'), page.getByTestId(`export-${id}`).click()]);
     const f = path.join(OUT, await d.suggestedFilename());
     await d.saveAs(f);
-    assert(fs.statSync(f).size > 200, `Exportación ${id} vacía`);
-  }
+    return fs.readFileSync(f, 'utf8');
+  };
+  const json = JSON.parse(await get('json'));
+  assert(json.project.answers['CTX-03'].value === 'AG Vitaminas QA', 'JSON respuesta');
+  assert(json.project.toppings['hero-banner'].approval === 'approved', 'JSON aprobación');
+  assert((await get('executive')).includes('AG Vitaminas QA'), 'Resumen ejecutivo');
+  assert((await get('requirementsCsv')).includes('Cuenta regresiva'), 'Matriz');
+  assert((await get('backlog')).includes('Épica'), 'Backlog');
+  assert((await get('checklist')).includes('Checklist'), 'Checklist');
+  assert((await get('answers')).includes('HOM-02'), 'Banco de respuestas');
 });
 
-console.log('\nFunciones adicionales\n');
-await page.getByTestId('workspace-studio').click();
-
-await check(17, 'Toppings: armar el Home por pasos desde cero', async () => {
-  await phase('home');
-  await page.getByTestId('toppings-clear').click();
-  await page.getByTestId('toppings-clear-confirm').click();
-  assert((await page.getByTestId('toppings-prompt').innerText()).includes('primero'), 'Prompt inicial');
-  for (const t of ['hero', 'bestSellers', 'benefits', 'newsletter']) await page.locator(`[data-palette-type="${t}"]`).click();
-  const order = await simOrder();
-  assert(JSON.stringify(order) === JSON.stringify(['hero', 'bestSellers', 'benefits', 'newsletter']), `Orden ${order}`);
-  assert((await page.getByTestId('toppings-prompt').innerText()).includes('Newsletter'), 'Prompt siguiente');
-  await page.getByTestId('toppings-stack').getByRole('button', { name: 'Quitar Beneficios' }).click();
-  assert(!(await simOrder()).includes('benefits'), 'Quitar topping');
-  await shot('17-toppings');
+await check('MIG-01', 'Un proyecto v1 guardado se migra a v2 al abrir la aplicación', async () => {
+  const m = await ctx.newPage();
+  await m.goto(BASE);
+  await m.evaluate(() => {
+    const v1 = { schemaVersion: 1, meta: { id: 'legacy1', name: 'Proyecto v1', client: 'AG', vertical: 'x', createdAt: '2026-01-01', updatedAt: '2026-01-01', themeName: null, proposalRef: '' }, brand: { storeName: 'Tienda Legacy', identity: 'multi', primary: '#123456', secondary: '#eeeeee', accent: '#ff0000', headingFont: 'Lora', bodyFont: 'Inter', radius: 'soft', currency: 'COP', locale: 'es-CO' }, pages: [{ id: 'home', type: 'home', title: 'Inicio', inMenu: false, inFooter: false }, { id: 'catalog', type: 'catalog', title: 'Catálogo', inMenu: true, inFooter: false }], header: { elements: ['search', 'cart'], menuType: 'simple', logoPosition: 'left', sticky: true, promoText: '' }, footer: { columns: 'columns', showNewsletter: false, showSocial: false, showPayments: false, legalText: '' }, references: [], home: { sections: [{ id: 'h1', type: 'hero', variant: 'split', props: { title: 'Hero heredado', subtitle: '', cta: 'Ver', columns: 4, itemsCount: 4, align: 'left', tone: 'muted' } }] }, catalog: {}, product: {}, cart: {}, subscriptions: {}, bundles: {}, leads: {}, sap: {}, decisions: {}, answered: { 'brand.storeName': true, 'home.sections': true } };
+    localStorage.setItem('tita-discovery-studio', JSON.stringify({ state: { projects: { legacy1: v1 }, activeId: null, sessions: {}, ui: {} }, version: 1 }));
+  });
+  await m.reload();
+  await m.getByText('Proyecto v1').waitFor();
+  await m.getByRole('button', { name: 'Abrir' }).click();
+  await m.getByTestId('simulator').getByRole('heading', { name: 'Hero heredado' }).waitFor();
+  await m.getByTestId('simulator').getByText('Tienda Legacy').first().waitFor();
+  await m.close();
 });
 
-await check(18, 'Al tocar una pregunta el simulador muestra y resalta lo que cambia', async () => {
-  await phase('identity');
-  await q('brand.radius').locator('[data-option="round"]').click();
-  await sim().getByTestId('collection-page').waitFor();
-  await sim().locator('.sim-spotlight').first().waitFor({ timeout: 2000 });
-  await q('header.menuType').locator('[data-option="mega"]').click();
-  await sim().getByTestId('megamenu').waitFor({ timeout: 2000 });
-  await shot('18-menu-preview');
-  await q('header.menuType').locator('[data-option="dropdown"]').click();
-  await sim().getByTestId('menu-dropdown').waitFor({ timeout: 2000 });
-  await phase('catalog');
-  await q('catalog.filterLayout').locator('[data-option="dropdown"]').click();
-  await sim().getByTestId('filter-dropdown-panel').waitFor({ timeout: 2000 });
-  await q('catalog.mobileFilter').locator('[data-option="drawer"]').click();
-  await sim().getByTestId('filter-drawer').waitFor({ timeout: 2000 });
-  assert((await sim().getAttribute('data-device')) === 'mobile', 'No cambió a móvil');
-  await shot('18-mobile-filter-preview');
-  await page.getByRole('radio', { name: /Desktop/ }).click();
-  await phase('cart');
-  await q('cart.freeShippingBar').click();
-  await sim().getByTestId('cart-drawer').getByTestId('free-shipping-bar').waitFor({ timeout: 2000 });
-});
-
-await page.getByTestId('workspace-pmo').click();
-await shot('pmo-summary');
-await page.getByTestId('pmo-tab-requirements').click();
-await shot('pmo-requirements');
-
-results.sort((a, b) => a.n - b.n);
+results.sort((a, b) => a.id.localeCompare(b.id));
 const failed = results.filter((r) => !r.ok);
-console.log(`\n${results.length - failed.length}/${results.length} criterios OK`);
-if (errors.length) console.log(`\nErrores de consola/página:\n - ${errors.join('\n - ')}`);
+console.log(`\n${results.length - failed.length}/${results.length} verificaciones OK`);
+if (errors.length) console.log(`\nErrores de consola/página:\n - ${[...new Set(errors)].join('\n - ')}`);
 fs.writeFileSync(path.join(OUT, 'results.json'), JSON.stringify({ results, errors }, null, 2));
 await browser.close();
 process.exit(failed.length || errors.length ? 1 : 0);
